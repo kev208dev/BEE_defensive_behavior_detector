@@ -24,6 +24,12 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        // flutter_local_notifications uses java.time APIs that do not exist on
+        // older Android versions, and declares in its AAR metadata that the
+        // consuming app must desugar them. Without this the build fails at
+        // :app:checkDebugAarMetadata with "requires core library desugaring
+        // to be enabled for :app".
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -50,6 +56,13 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+}
+
+dependencies {
+    // Required by isCoreLibraryDesugaringEnabled above. The version is the one
+    // flutter_local_notifications itself builds against (see that plugin's
+    // android/build.gradle), so keep the two in step when upgrading it.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 
 kotlin {
