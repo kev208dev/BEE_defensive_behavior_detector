@@ -82,7 +82,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(monitor.router)
     app.include_router(devices.router)
     app.include_router(pairings.router)
-    app.include_router(demo.router)
+
+    # The demo endpoints are rehearsal tools, and none of them authenticates:
+    # /api/demo/reset alone deletes every observation, alert, monitoring device
+    # and pairing session, which in production would let anyone who knows the
+    # URL wipe the hive history and unpair every phone. They are mounted only
+    # when DEBUG is on, so a deployment that runs with DEBUG=false does not
+    # serve them at all.
+    if settings.debug:
+        app.include_router(demo.router)
+    else:
+        logger.info("DEBUG is off — /api/demo/* is not mounted.")
 
     snapshot_dir = Path(settings.snapshot_dir)
     snapshot_dir.mkdir(parents=True, exist_ok=True)
