@@ -392,9 +392,9 @@ Bottom sheet에 다음이 표시됩니다.
 |---|---|---|
 | `API_BASE_URL` | Railway production URL | 백엔드 주소 (빌드 시에만 지정, 앱 UI에 없음) |
 | `ANALYSIS_INTERVAL_MS` | `1000` | 연속 stream에서 추론할 표본 간격 (≈1 Hz) |
-| `MODEL_MODE` | `mock` | 온디바이스 detector (`mock` / `tflite`) |
+| `MODEL_MODE` | `tflite` | 온디바이스 detector (`mock` / `tflite`) |
 | `TFLITE_MODEL_ASSET` | `assets/models/hornet.tflite` | 실제 모델 asset 경로 |
-| `MODEL_VERSION` | `hornet-tflite-v1` | observation에 기록할 모델 버전 |
+| `MODEL_VERSION` | `vespai-yolov5s-all-but-22ip` | observation에 기록할 모델 버전 |
 | `AUDIO_CHUNK_SECONDS` | `3` | 오디오 청크 길이 |
 | `HEARTBEAT_INTERVAL_SECONDS` | `10` | heartbeat 주기 |
 | `ALERT_POLL_INTERVAL_SECONDS` | `10` | 경보 폴링 주기 |
@@ -403,21 +403,25 @@ Bottom sheet에 다음이 표시됩니다.
 
 ---
 
-## 8. Mock Mode — 아무것도 없이 실행하기
+## 8. 실제 온디바이스 모델과 Mock Mode
 
-이 프로젝트에서 가장 중요한 성질입니다.
-**YOLO weight도, audio model도, Firebase 설정도 없는 상태에서 전체가 동작합니다.**
+모바일 앱의 기본값은 번들된 VespAI TFLite 모델을 사용하는 `tflite`입니다.
+카메라 프레임은 기기에서만 처리되고 서버에는 박스·종명·신뢰도·추론 시간만 전송됩니다.
+개발자가 카메라 이후의 파이프라인만 확인해야 할 때는 mock을 명시적으로 선택할 수 있습니다.
 
 ```bash
-# 기본값이 곧 mock mode 입니다. 추가 설정이 필요 없습니다.
+# 백엔드의 mock 구성은 기존처럼 별도로 사용할 수 있습니다.
 cd services/backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# 모바일에서 탐지를 끄고 파이프라인만 검사할 때만 명시합니다.
+cd apps/mobile && flutter run --dart-define=MODEL_MODE=mock
 ```
 
 - `DETECTOR_MODE=mock` — `MockHornetDetector`. 이미지 바이트 해시로 결정적인 개체 수를 산출하고,
   demo 시나리오가 주입되면 그 값을 순서대로 반환합니다.
 - `AUDIO_MODEL_MODE=mock` — `MockAudioClassifier`. 0.05~0.35 대역의 환경음 수준 확률을 반환합니다.
 - `NOTIFICATION_MODE=console` — `ConsoleNotificationSender`. 실제 push 대신 콘솔에 출력합니다.
-- `MODEL_MODE=mock` (앱, 기본값) — `MockOnDeviceHornetDetector`. **이미지를 보지 않고 모든
+- `MODEL_MODE=mock` (앱, 명시적 개발 옵션) — `MockOnDeviceHornetDetector`. **이미지를 보지 않고 모든
   프레임에 0마리를 반환합니다.** camera stream → detector → metadata → Risk Engine 경로를
   검증할 뿐, 말벌을 탐지하지 않습니다. 이 상태의 "0마리"는 **탐지 결과가 아니라 모델이 없다는
   뜻**이므로, 앱 화면에도 `실제 탐지 안 함` 이라고 함께 표시됩니다.
@@ -661,6 +665,19 @@ export YOLO_HORNET_CLASSES=hornet,wasp,vespa
 
 `YoloHornetDetector` 는 프레임 디코딩 실패나 추론 예외를 "탐지 없음"으로 처리합니다.
 손상된 프레임 한 장이 모니터링 전체를 중단시키지 않도록 한 설계입니다.
+
+### 모바일 VespAI pretrained model
+
+모바일 앱에는 [VespAI](https://github.com/andrw3000/vespai)의 공개 pretrained
+`models/yolov5-params/yolov5s-all-but-22ip.pt`를 TFLite로 변환한 모델이 포함됩니다.
+이 프로젝트가 직접 학습한 모델이 아닙니다. 클래스는 `Vespa crabro`와
+`Vespa velutina`이며 둘 다 서버의 `hornet_count`에 포함됩니다. 정확한 원본·변환
+커밋, SHA-256, tensor 계약은
+[`apps/mobile/assets/models/README.md`](apps/mobile/assets/models/README.md)에 기록했습니다.
+
+VespAI 저장소의 `LICENSE`는 저장소를 **CC BY-NC-SA 4.0**, 구성 모델 코드를
+**AGPL-3.0**으로 명시합니다. 현재 포함 모델은 비상업적 MVP/competition 시연용입니다.
+상업 배포 전에는 별도의 라이선스 검토와 필요한 권리자 허가를 받아야 합니다.
 
 ---
 

@@ -1,56 +1,71 @@
-# On-device hornet model
+# Bundled on-device hornet model
 
-No placeholder or fake model is committed. `MODEL_MODE=mock` is the default and
-needs no asset: it reports **zero hornets on every frame**. It exercises the
-camera → detector → metadata → backend pipeline; it does not look at the image
-and it detects nothing. A build running in mock mode is not performing hornet
-detection, and nothing in the app should be read as if it were.
+The default mobile build runs a real VespAI detector from
+`assets/models/hornet.tflite`. Raw camera images stay on the phone; only
+detection metadata is sent to the observation API.
 
-## Enabling the real adapter
+## Provenance
 
-Place the validated model at `assets/models/hornet.tflite` and build with:
+- Model project: [andrw3000/vespai](https://github.com/andrw3000/vespai)
+- VespAI revision used for this conversion:
+  `004f3d8930d19affd04f5d112224107c5d81eec4`
+- Selected pretrained weight: `models/yolov5-params/yolov5s-all-but-22ip.pt`
+- Original weight size: 14,369,205 bytes
+- Original weight SHA-256:
+  `28da7714df2ec105a4600082a0a2ce565ccf1b60a64a425393fbb19709f616ef`
+- Compatible YOLOv5 revision:
+  `23701eac7a7b160e478ba4bbef966d0af9348251`
+- Bundled TFLite size: 14,136,328 bytes
+- Bundled TFLite SHA-256:
+  `0a89d40e90f8204308d795b49288178260b3ed6cf78d171bbffee694b1868ba3`
+- Classes: `0 = Vespa crabro`, `1 = Vespa velutina`
 
-```bash
-flutter build apk --dart-define=MODEL_MODE=tflite \
-                  --dart-define=MODEL_VERSION=hornet-yolo-v1
-```
+This is a public pretrained VespAI model. It was not trained by this project.
 
-Overrides: `TFLITE_MODEL_ASSET` (asset path), `MODEL_VERSION` (the string
-reported to the backend and stored on every observation, so a risk score can
-later be traced to the model that produced it).
+## Runtime contract
 
-## Model contract
-
-The bundled adapter (`TfliteHornetDetector`) requires:
-
-| | Requirement |
+| Item | Verified value |
 |---|---|
-| Input tensor | rank 4, NHWC, 3 channels — `[1, H, W, 3]` |
-| Input type | `float32` (normalised to 0..1) or `uint8` |
-| Colour order | RGB |
-| Preprocessing | nearest-neighbour resize to the model's `H`×`W`; done off the UI isolate |
-| Output | one or more tensors whose innermost rows have ≥ 6 columns: `x, y, width, height, score, class` |
-| Coordinates | normalised 0..1, with `x + width <= 1` and `y + height <= 1` |
+| Input | index `0`, `[1, 640, 640, 3]`, `float32`, NHWC |
+| Colour | RGB |
+| Normalization | channel value divided by 255, producing `[0, 1]` |
+| Resize | aspect-preserving nearest-neighbour letterbox |
+| Padding | RGB `(114, 114, 114)` |
+| Output | index `525`, `[1, 25200, 7]`, `float32` |
+| Output row | normalized `cx, cy, w, h, objectness, crabro, velutina` |
+| Confidence | `objectness × selected class probability` |
+| Confidence threshold | `0.8` (the VespAI monitor default) |
+| NMS | performed in Flutter, class-aware, IoU threshold `0.45` |
 
-The input shape is checked when the model loads, not on the first frame: a
-model this adapter cannot feed makes `startMonitoring()` fail with a visible
-error rather than silently dropping every frame while the UI reports zero
-hornets.
+The output is the raw YOLO head, not final detections. Flutter reverses the
+letterbox transform, clamps each box to the source camera frame, and sends
+normalized top-left `x, y, width, height`. Both classes count toward
+`hornet_count`; `class_name` preserves the species.
 
-## Single-class assumption
+The camera plugin supplies iOS frames as BGRA8888 and Android frames as NV21
+or planar YUV. Conversion, letterboxing, and inference retain the existing
+background-isolate and single-flight frame-dropping pipeline. Coordinates are
+relative to the native camera buffer; the app does not currently render a box
+overlay that would require preview-orientation remapping.
 
-`SixColumnDetectionDecoder` counts **every** box above its confidence threshold
-as a hornet, because `hornet_count` is the dominant term in the backend's risk
-score. That is correct only for a single-class hornet model.
+## Failure behavior
 
-For a multi-class model (hornets plus honeybees, or several species),
-implement `TfliteOutputDecoder` and filter on the class column, then pass it to
-`TfliteHornetDetector.fromAsset(decoder: ...)`. Without that, a frame full of
-the colony's own bees scores as a mass attack. No other layer needs to change —
-that is what the decoder boundary is for.
+Input and output tensor shapes and dtypes are checked while the model loads.
+An absent or incompatible model stops monitoring and shows
+`말벌 탐지 모델을 불러올 수 없습니다.` There is no automatic mock fallback.
+Developers can still explicitly build with `--dart-define=MODEL_MODE=mock`.
 
-## Still outstanding
+## Verification
 
-There is no trained, validated hornet model in this repository. Producing one
-(dataset, labelling, training, field validation) is the remaining work before
-the system detects anything real.
+See `tools/model_conversion/README.md`. The checked-in verifier prints tensor
+details and runs the same preprocessing, confidence filtering, species mapping,
+letterbox reversal, and NMS as the Flutter decoder.
+
+## License
+
+The VespAI repository states that it is distributed under
+**CC BY-NC-SA 4.0**, with constituent model code under **AGPL-3.0** and each
+dependency under its own license. This bundled converted model is used for a
+non-commercial MVP/competition demonstration. A separate license review and,
+where needed, permission from the rights holder are required before any
+commercial deployment.
