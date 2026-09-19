@@ -290,6 +290,9 @@ class MonitoringController extends Notifier<MonitoringState> {
   }
 
   void _onObservationOutcome(UploadOutcome<FrameAnalysis> outcome) {
+    // An upload can land while the notifier is being torn down; the result is
+    // of no use to anyone by then.
+    if (!ref.mounted) return;
     if (outcome.succeeded && outcome.value != null) {
       final FrameAnalysis analysis = outcome.value!;
       ref.read(connectionProvider.notifier).report(success: true);
@@ -347,7 +350,7 @@ class MonitoringController extends Notifier<MonitoringState> {
   Future<void> _uploadAudio(String hiveId, Uint8List bytes) async {
     // Same backpressure rule as frames: never let uploads pile up. A chunk
     // that arrives while the previous is still going is simply skipped.
-    if (_audioUploadInFlight || !state.monitoring) return;
+    if (!ref.mounted || _audioUploadInFlight || !state.monitoring) return;
     _audioUploadInFlight = true;
 
     try {
@@ -359,6 +362,7 @@ class MonitoringController extends Notifier<MonitoringState> {
             audioBytes: bytes,
             timestamp: DateTime.now(),
           );
+      if (!ref.mounted) return;
       state = state.copyWith(
         audioProbability: analysis.hornetProbability,
         lastAudioUploadAt: DateTime.now(),
@@ -384,23 +388,36 @@ class MonitoringController extends Notifier<MonitoringState> {
   }
 
   Future<void> _sendHeartbeat(String hiveId) async {
+    // The first heartbeat is fired unawaited from startMonitoring and the rest
+    // come off a timer, so one can still be in flight when the user leaves the
+    // screen and Riverpod disposes this notifier. Touching `ref` or `state`
+    // after that throws, and it used to throw from inside the catch below —
+    // where nothing was left to handle it, so it surfaced as an unhandled
+    // async error rather than a failed heartbeat.
+    if (!ref.mounted) return;
+
+    // Read everything needed up front: after the await, this notifier may be
+    // gone and none of it is reachable.
+    final ApiClient api = ref.read(apiClientProvider);
+    final HeartbeatRequest request = HeartbeatRequest(
+      hiveId: hiveId,
+      deviceId: ref.read(deviceIdProvider),
+      timestamp: DateTime.now(),
+      cameraOk: state.cameraReady || (_camera?.isReady ?? false),
+      microphoneOk: _audio?.isRecording ?? false,
+      monitoring: state.monitoring,
+    );
+
     try {
-      await ref
-          .read(apiClientProvider)
-          .sendHeartbeat(
-            HeartbeatRequest(
-              hiveId: hiveId,
-              deviceId: ref.read(deviceIdProvider),
-              timestamp: DateTime.now(),
-              cameraOk: state.cameraReady || (_camera?.isReady ?? false),
-              microphoneOk: _audio?.isRecording ?? false,
-              monitoring: state.monitoring,
-            ),
-          );
-      ref.read(connectionProvider.notifier).report(success: true);
+      await api.sendHeartbeat(request);
+      if (ref.mounted) {
+        ref.read(connectionProvider.notifier).report(success: true);
+      }
     } on Object catch (error) {
       debugPrint('MonitoringController: heartbeat failed — $error');
-      ref.read(connectionProvider.notifier).report(success: false);
+      if (ref.mounted) {
+        ref.read(connectionProvider.notifier).report(success: false);
+      }
     }
   }
 

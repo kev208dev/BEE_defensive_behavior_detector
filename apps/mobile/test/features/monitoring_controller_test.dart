@@ -6,6 +6,7 @@ import 'package:beehive_guard/core/config/mode_storage.dart';
 import 'package:beehive_guard/core/providers.dart';
 import 'package:beehive_guard/features/monitoring/domain/camera_service.dart';
 import 'package:beehive_guard/features/monitoring/domain/monitoring_controller.dart';
+import 'package:beehive_guard/features/monitoring/domain/monitoring_state.dart';
 import 'package:beehive_guard/features/monitoring/domain/on_device_hornet_detector.dart';
 import 'package:beehive_guard/features/monitoring/domain/permission_service.dart';
 import 'package:camera/camera.dart';
@@ -92,6 +93,138 @@ void main() {
       expect(container.read(monitoringControllerProvider).monitoring, isTrue);
     },
   );
+
+  group('teardown releases the hardware', () {
+    test('stopMonitoring stops the stream and disposes camera and detector',
+        () async {
+      final _Harness harness = await _Harness.start();
+      addTearDown(harness.dispose);
+
+      expect(harness.session.isStreamingImages, isTrue);
+
+      await harness.controller.stopMonitoring();
+
+      expect(harness.session.isStreamingImages, isFalse);
+      expect(harness.session.disposed, isTrue);
+      expect(harness.detector.disposed, isTrue);
+      expect(harness.state.monitoring, isFalse);
+      expect(harness.state.cameraReady, isFalse);
+      expect(harness.state.cameraController, isNull);
+    });
+
+    test('a frame arriving after stop is not analysed or uploaded', () async {
+      final _Harness harness = await _Harness.start();
+      addTearDown(harness.dispose);
+
+      harness.session.emit(testCameraImage());
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      final int detectsWhileRunning = harness.detector.detectCalls;
+      final int uploadsWhileRunning = harness.adapter.observationAttempts;
+      expect(detectsWhileRunning, greaterThan(0));
+
+      await harness.controller.stopMonitoring();
+
+      // The real camera is gone by now, but a queued platform callback could
+      // still arrive; it must not restart the pipeline.
+      harness.session.emit(testCameraImage());
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      harness.session.emit(testCameraImage());
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(harness.detector.detectCalls, detectsWhileRunning);
+      expect(harness.adapter.observationAttempts, uploadsWhileRunning);
+    });
+
+    test('leaving the screen disposes the provider and the hardware with it',
+        () async {
+      // Riverpod tears the notifier down when the last listener goes; the
+      // camera must not outlive it.
+      final _Harness harness = await _Harness.start();
+
+      harness.container.dispose();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(harness.session.disposed, isTrue);
+      expect(harness.session.isStreamingImages, isFalse);
+      expect(harness.detector.disposed, isTrue);
+
+      harness.dio.close(force: true);
+    });
+  });
+}
+
+/// A started monitoring session with its fakes exposed.
+class _Harness {
+  _Harness({
+    required this.container,
+    required this.controller,
+    required this.session,
+    required this.detector,
+    required this.adapter,
+    required this.dio,
+  });
+
+  final ProviderContainer container;
+  final MonitoringController controller;
+  final _FakeCameraSession session;
+  final _RecordingDetector detector;
+  final _MonitoringAdapter adapter;
+  final Dio dio;
+
+  MonitoringState get state => container.read(monitoringControllerProvider);
+
+  static Future<_Harness> start() async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final SharedPreferences preferences = await SharedPreferences.getInstance();
+    final _MonitoringAdapter adapter = _MonitoringAdapter();
+    final Dio dio = Dio(BaseOptions(baseUrl: 'https://example.test'))
+      ..httpClientAdapter = adapter;
+    final _FakeCameraSession session = _FakeCameraSession();
+    final _RecordingDetector detector = _RecordingDetector();
+    final CameraService camera = CameraService(
+      cameraLoader: () async => const <CameraDescription>[
+        CameraDescription(
+          name: 'rear',
+          lensDirection: CameraLensDirection.back,
+          sensorOrientation: 90,
+        ),
+      ],
+      sessionFactory: (_, _) => session,
+    );
+    final ProviderContainer container = ProviderContainer(
+      overrides: [
+        modeStorageProvider.overrideWithValue(ModeStorage(preferences)),
+        permissionServiceProvider.overrideWithValue(
+          const _GrantedCameraPermissionService(),
+        ),
+        cameraServiceFactoryProvider.overrideWithValue(() => camera),
+        onDeviceDetectorFactoryProvider.overrideWithValue(() async => detector),
+        apiClientProvider.overrideWithValue(ApiClient(dio)),
+      ],
+    );
+
+    final MonitoringController controller = container.read(
+      monitoringControllerProvider.notifier,
+    );
+    controller.selectHive(hiveId: 'hive-a', hiveName: '벌통 A');
+    final bool started = await controller.startMonitoring();
+    expect(started, isTrue);
+
+    return _Harness(
+      container: container,
+      controller: controller,
+      session: session,
+      detector: detector,
+      adapter: adapter,
+      dio: dio,
+    );
+  }
+
+  Future<void> dispose() async {
+    await controller.stopMonitoring();
+    container.dispose();
+    dio.close(force: true);
+  }
 }
 
 const OnDeviceDetectionResult _detection = OnDeviceDetectionResult(
@@ -124,6 +257,9 @@ class _GrantedCameraPermissionService extends PermissionService {
 class _FakeCameraSession implements CameraSession {
   void Function(CameraImage)? _listener;
 
+  /// Whether the platform camera was actually handed back.
+  bool disposed = false;
+
   @override
   bool isInitialized = false;
 
@@ -152,9 +288,27 @@ class _FakeCameraSession implements CameraSession {
   }
 
   @override
-  Future<void> dispose() async {}
+  Future<void> dispose() async {
+    disposed = true;
+    isInitialized = false;
+  }
 
   void emit(CameraImage image) => _listener?.call(image);
+}
+
+/// A detector that records its own disposal.
+class _RecordingDetector implements OnDeviceHornetDetector {
+  bool disposed = false;
+  int detectCalls = 0;
+
+  @override
+  Future<OnDeviceDetectionResult> detect(CameraImage image) async {
+    detectCalls++;
+    return _detection;
+  }
+
+  @override
+  Future<void> dispose() async => disposed = true;
 }
 
 class _MonitoringAdapter implements HttpClientAdapter {

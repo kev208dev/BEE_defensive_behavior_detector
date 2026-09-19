@@ -15,8 +15,14 @@ abstract interface class TfliteOutputDecoder {
 
 /// Decoder for the common `[1, N, 6]` layout: x, y, width, height, score, class.
 ///
-/// A production model with a different head can supply another decoder without
-/// changing camera, sampling, upload or backend code.
+/// **This decoder assumes a single-class hornet model.** Every box that clears
+/// [confidenceThreshold] is counted as a hornet, because `hornet_count` is what
+/// drives the backend's risk score. A multi-class model — one that also emits
+/// honeybees, or several hornet species — must supply its own decoder that
+/// filters on the class column, or every bee in frame will be scored as an
+/// attacker. The [TfliteOutputDecoder] boundary exists for exactly that: a
+/// different head is swapped in without touching camera, sampling, upload or
+/// backend code.
 class SixColumnDetectionDecoder implements TfliteOutputDecoder {
   const SixColumnDetectionDecoder({this.confidenceThreshold = 0.5});
 
@@ -71,12 +77,38 @@ class TfliteHornetDetector implements OnDeviceHornetDetector {
     required this.modelVersion,
   });
 
+  /// Checks that a model's input tensor is one this adapter can feed.
+  ///
+  /// Exposed so the contract can be asserted without a model file present.
+  static void validateInputShape(List<int> shape) {
+    if (shape.length != 4 || shape.last != 3) {
+      throw StateError(
+        'Expected an NHWC image tensor with 3 channels, got $shape. '
+        'See assets/models/README.md for the model contract.',
+      );
+    }
+  }
+
+  /// Loads a model, failing loudly if it cannot actually be driven.
+  ///
+  /// The shape check happens here rather than on the first frame on purpose.
+  /// [ImageAnalysisLoop] swallows per-frame errors so that one bad frame
+  /// cannot kill the camera stream, which means a model this adapter cannot
+  /// feed would otherwise fail silently on every frame forever: monitoring
+  /// would look healthy and report zero hornets indefinitely. Failing at load
+  /// turns that into a refusal to start, which the user is told about.
   static Future<TfliteHornetDetector> fromAsset({
     required String assetPath,
     required String modelVersion,
     TfliteOutputDecoder decoder = const SixColumnDetectionDecoder(),
   }) async {
     final Interpreter interpreter = await Interpreter.fromAsset(assetPath);
+    try {
+      validateInputShape(interpreter.getInputTensor(0).shape);
+    } on Object {
+      interpreter.close();
+      rethrow;
+    }
     final IsolateInterpreter isolateInterpreter =
         await IsolateInterpreter.create(address: interpreter.address);
     return TfliteHornetDetector._(
@@ -97,13 +129,9 @@ class TfliteHornetDetector implements OnDeviceHornetDetector {
   Future<OnDeviceDetectionResult> detect(CameraImage image) async {
     if (_disposed) throw StateError('Detector has been disposed.');
     final Stopwatch stopwatch = Stopwatch()..start();
+    // Shape was validated in [fromAsset]; an interpreter that got this far can
+    // be fed.
     final Tensor inputTensor = _interpreter.getInputTensor(0);
-    if (inputTensor.shape.length != 4 || inputTensor.shape.last != 3) {
-      throw StateError(
-        'Expected an NHWC image tensor, got ${inputTensor.shape}.',
-      );
-    }
-
     final _FrameData frame = _FrameData.fromCameraImage(image);
     final _PreprocessRequest request = _PreprocessRequest(
       frame: frame,
