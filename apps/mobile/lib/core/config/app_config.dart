@@ -26,10 +26,10 @@ abstract final class AppConfig {
     defaultValue: 1000,
   );
 
-  /// On-device detector adapter. `mock` needs no bundled model.
+  /// On-device detector adapter. The bundled VespAI model is the default.
   static const String modelMode = String.fromEnvironment(
     'MODEL_MODE',
-    defaultValue: 'mock',
+    defaultValue: 'tflite',
   );
 
   static const String tfliteModelAsset = String.fromEnvironment(
@@ -39,7 +39,7 @@ abstract final class AppConfig {
 
   static const String modelVersion = String.fromEnvironment(
     'MODEL_VERSION',
-    defaultValue: 'hornet-tflite-v1',
+    defaultValue: 'vespai-yolov5s-all-but-22ip',
   );
 
   /// True when this build carries no real model.

@@ -19,6 +19,51 @@ import 'on_device_hornet_detector_test.dart' show testCameraImage;
 
 void main() {
   test(
+    'model load failure stops startup with a visible hornet error',
+    () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences preferences =
+          await SharedPreferences.getInstance();
+      final _FakeCameraSession session = _FakeCameraSession();
+      final CameraService camera = CameraService(
+        cameraLoader: () async => const <CameraDescription>[
+          CameraDescription(
+            name: 'rear',
+            lensDirection: CameraLensDirection.back,
+            sensorOrientation: 90,
+          ),
+        ],
+        sessionFactory: (_, _) => session,
+      );
+      final ProviderContainer container = ProviderContainer(
+        overrides: [
+          modeStorageProvider.overrideWithValue(ModeStorage(preferences)),
+          permissionServiceProvider.overrideWithValue(
+            const _GrantedCameraPermissionService(),
+          ),
+          cameraServiceFactoryProvider.overrideWithValue(() => camera),
+          onDeviceDetectorFactoryProvider.overrideWithValue(
+            () async => throw StateError('bad model'),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final MonitoringController controller = container.read(
+        monitoringControllerProvider.notifier,
+      );
+      controller.selectHive(hiveId: 'hive-a', hiveName: '벌통 A');
+
+      expect(await controller.startMonitoring(), isFalse);
+      expect(container.read(monitoringControllerProvider).monitoring, isFalse);
+      expect(
+        container.read(monitoringControllerProvider).errorMessage,
+        '말벌 탐지 모델을 불러올 수 없습니다.',
+      );
+      expect(session.disposed, isTrue);
+    },
+  );
+
+  test(
     'updates detection state and keeps monitoring after upload failure',
     () async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -39,7 +84,7 @@ void main() {
         sessionFactory: (_, _) => session,
       );
       final ProviderContainer container = ProviderContainer(
-      overrides: [
+        overrides: [
           modeStorageProvider.overrideWithValue(ModeStorage(preferences)),
           permissionServiceProvider.overrideWithValue(
             const _GrantedCameraPermissionService(),
@@ -95,22 +140,24 @@ void main() {
   );
 
   group('teardown releases the hardware', () {
-    test('stopMonitoring stops the stream and disposes camera and detector',
-        () async {
-      final _Harness harness = await _Harness.start();
-      addTearDown(harness.dispose);
+    test(
+      'stopMonitoring stops the stream and disposes camera and detector',
+      () async {
+        final _Harness harness = await _Harness.start();
+        addTearDown(harness.dispose);
 
-      expect(harness.session.isStreamingImages, isTrue);
+        expect(harness.session.isStreamingImages, isTrue);
 
-      await harness.controller.stopMonitoring();
+        await harness.controller.stopMonitoring();
 
-      expect(harness.session.isStreamingImages, isFalse);
-      expect(harness.session.disposed, isTrue);
-      expect(harness.detector.disposed, isTrue);
-      expect(harness.state.monitoring, isFalse);
-      expect(harness.state.cameraReady, isFalse);
-      expect(harness.state.cameraController, isNull);
-    });
+        expect(harness.session.isStreamingImages, isFalse);
+        expect(harness.session.disposed, isTrue);
+        expect(harness.detector.disposed, isTrue);
+        expect(harness.state.monitoring, isFalse);
+        expect(harness.state.cameraReady, isFalse);
+        expect(harness.state.cameraController, isNull);
+      },
+    );
 
     test('a frame arriving after stop is not analysed or uploaded', () async {
       final _Harness harness = await _Harness.start();
@@ -135,21 +182,23 @@ void main() {
       expect(harness.adapter.observationAttempts, uploadsWhileRunning);
     });
 
-    test('leaving the screen disposes the provider and the hardware with it',
-        () async {
-      // Riverpod tears the notifier down when the last listener goes; the
-      // camera must not outlive it.
-      final _Harness harness = await _Harness.start();
+    test(
+      'leaving the screen disposes the provider and the hardware with it',
+      () async {
+        // Riverpod tears the notifier down when the last listener goes; the
+        // camera must not outlive it.
+        final _Harness harness = await _Harness.start();
 
-      harness.container.dispose();
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+        harness.container.dispose();
+        await Future<void>.delayed(const Duration(milliseconds: 50));
 
-      expect(harness.session.disposed, isTrue);
-      expect(harness.session.isStreamingImages, isFalse);
-      expect(harness.detector.disposed, isTrue);
+        expect(harness.session.disposed, isTrue);
+        expect(harness.session.isStreamingImages, isFalse);
+        expect(harness.detector.disposed, isTrue);
 
-      harness.dio.close(force: true);
-    });
+        harness.dio.close(force: true);
+      },
+    );
   });
 }
 

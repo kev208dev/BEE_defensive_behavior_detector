@@ -10,62 +10,199 @@ import 'on_device_hornet_detector.dart';
 
 /// Converts model-specific output tensors into the app's stable contract.
 abstract interface class TfliteOutputDecoder {
-  List<OnDeviceDetection> decode(List<Object> outputs);
+  List<OnDeviceDetection> decode(
+    List<Object> outputs, {
+    required int frameWidth,
+    required int frameHeight,
+    required int inputWidth,
+    required int inputHeight,
+  });
 }
 
-/// Decoder for the common `[1, N, 6]` layout: x, y, width, height, score, class.
+class VespAiLetterboxGeometry {
+  const VespAiLetterboxGeometry({
+    required this.scale,
+    required this.resizedWidth,
+    required this.resizedHeight,
+    required this.horizontalPadding,
+    required this.verticalPadding,
+    required this.padLeft,
+    required this.padTop,
+  });
+
+  static const int paddingValue = 114;
+
+  final double scale;
+  final int resizedWidth;
+  final int resizedHeight;
+  final double horizontalPadding;
+  final double verticalPadding;
+  final int padLeft;
+  final int padTop;
+}
+
+/// Decodes the raw head exported from VespAI's two-class YOLOv5s model.
 ///
-/// **This decoder assumes a single-class hornet model.** Every box that clears
-/// [confidenceThreshold] is counted as a hornet, because `hornet_count` is what
-/// drives the backend's risk score. A multi-class model — one that also emits
-/// honeybees, or several hornet species — must supply its own decoder that
-/// filters on the class column, or every bee in frame will be scored as an
-/// attacker. The [TfliteOutputDecoder] boundary exists for exactly that: a
-/// different head is swapped in without touching camera, sampling, upload or
-/// backend code.
-class SixColumnDetectionDecoder implements TfliteOutputDecoder {
-  const SixColumnDetectionDecoder({this.confidenceThreshold = 0.5});
+/// Each row is normalized `cx, cy, width, height, objectness, crabro, velutina`.
+/// The original VespAI monitor uses a confidence threshold of 0.8. The exported
+/// model does not contain NMS, so class-aware YOLO NMS is applied here.
+class VespAiYoloV5Decoder implements TfliteOutputDecoder {
+  const VespAiYoloV5Decoder({
+    this.confidenceThreshold = 0.8,
+    this.iouThreshold = 0.45,
+  });
 
   final double confidenceThreshold;
+  final double iouThreshold;
+
+  static const List<String> _classNames = <String>[
+    'Vespa crabro',
+    'Vespa velutina',
+  ];
 
   @override
-  List<OnDeviceDetection> decode(List<Object> outputs) {
-    final List<List<num>> rows = <List<num>>[];
-    for (final Object output in outputs) {
-      _collectRows(output, rows);
+  List<OnDeviceDetection> decode(
+    List<Object> outputs, {
+    required int frameWidth,
+    required int frameHeight,
+    required int inputWidth,
+    required int inputHeight,
+  }) {
+    if (outputs.length != 1 ||
+        outputs.single is! List<Object> ||
+        (outputs.single as List<Object>).length != 1) {
+      throw StateError('Expected one VespAI output tensor with batch size 1.');
     }
-    return rows
-        .where((List<num> row) => row[4].toDouble() >= confidenceThreshold)
+
+    final Object batch = (outputs.single as List<Object>).single;
+    if (batch is! List<Object>) {
+      throw StateError('Expected VespAI output rows.');
+    }
+
+    final VespAiLetterboxGeometry geometry =
+        TfliteHornetDetector.letterboxGeometry(
+          frameWidth: frameWidth,
+          frameHeight: frameHeight,
+          inputWidth: inputWidth,
+          inputHeight: inputHeight,
+        );
+    final double scale = geometry.scale;
+    final double padX = geometry.horizontalPadding;
+    final double padY = geometry.verticalPadding;
+    final List<_DetectionCandidate> candidates = <_DetectionCandidate>[];
+
+    for (final Object? value in batch) {
+      if (value is! List ||
+          value.length != 7 ||
+          !value.every((Object? item) => item is num)) {
+        throw StateError('Expected VespAI prediction rows with 7 values.');
+      }
+      final List<num> row = value.cast<num>();
+      final double objectness = row[4].toDouble();
+      final int classIndex = row[5].toDouble() >= row[6].toDouble() ? 0 : 1;
+      final double confidence = objectness * row[5 + classIndex].toDouble();
+      if (!confidence.isFinite || confidence < confidenceThreshold) continue;
+
+      final double centerX = row[0].toDouble() * inputWidth;
+      final double centerY = row[1].toDouble() * inputHeight;
+      final double modelWidth = row[2].toDouble() * inputWidth;
+      final double modelHeight = row[3].toDouble() * inputHeight;
+      final double left = ((centerX - modelWidth / 2 - padX) / scale).clamp(
+        0.0,
+        frameWidth.toDouble(),
+      );
+      final double top = ((centerY - modelHeight / 2 - padY) / scale).clamp(
+        0.0,
+        frameHeight.toDouble(),
+      );
+      final double right = ((centerX + modelWidth / 2 - padX) / scale).clamp(
+        0.0,
+        frameWidth.toDouble(),
+      );
+      final double bottom = ((centerY + modelHeight / 2 - padY) / scale).clamp(
+        0.0,
+        frameHeight.toDouble(),
+      );
+      if (right <= left || bottom <= top) continue;
+
+      candidates.add(
+        _DetectionCandidate(
+          left: left / frameWidth,
+          top: top / frameHeight,
+          right: right / frameWidth,
+          bottom: bottom / frameHeight,
+          confidence: confidence.clamp(0.0, 1.0),
+          classIndex: classIndex,
+        ),
+      );
+    }
+
+    candidates.sort(
+      (_DetectionCandidate a, _DetectionCandidate b) =>
+          b.confidence.compareTo(a.confidence),
+    );
+    final List<_DetectionCandidate> kept = <_DetectionCandidate>[];
+    for (final _DetectionCandidate candidate in candidates) {
+      final bool overlaps = kept.any(
+        (_DetectionCandidate accepted) =>
+            accepted.classIndex == candidate.classIndex &&
+            _intersectionOverUnion(accepted, candidate) > iouThreshold,
+      );
+      if (!overlaps) kept.add(candidate);
+    }
+
+    return kept
         .map(
-          (List<num> row) => OnDeviceDetection(
-            x: row[0].toDouble().clamp(0.0, 1.0),
-            y: row[1].toDouble().clamp(0.0, 1.0),
-            width: row[2].toDouble().clamp(0.0, 1.0),
-            height: row[3].toDouble().clamp(0.0, 1.0),
-            confidence: row[4].toDouble().clamp(0.0, 1.0),
-            className: row.length > 6 ? 'class-${row[5].toInt()}' : 'hornet',
+          (_DetectionCandidate item) => OnDeviceDetection(
+            x: item.left,
+            y: item.top,
+            width: item.right - item.left,
+            height: item.bottom - item.top,
+            confidence: item.confidence,
+            className: _classNames[item.classIndex],
           ),
-        )
-        .where(
-          (OnDeviceDetection item) =>
-              item.width > 0 &&
-              item.height > 0 &&
-              item.x + item.width <= 1.0 &&
-              item.y + item.height <= 1.0,
         )
         .toList(growable: false);
   }
+}
 
-  static void _collectRows(Object value, List<List<num>> rows) {
-    if (value is! List || value.isEmpty) return;
-    if (value.length >= 6 && value.every((Object? item) => item is num)) {
-      rows.add(value.cast<num>());
-      return;
-    }
-    for (final Object? child in value) {
-      if (child != null) _collectRows(child, rows);
-    }
-  }
+class _DetectionCandidate {
+  const _DetectionCandidate({
+    required this.left,
+    required this.top,
+    required this.right,
+    required this.bottom,
+    required this.confidence,
+    required this.classIndex,
+  });
+
+  final double left;
+  final double top;
+  final double right;
+  final double bottom;
+  final double confidence;
+  final int classIndex;
+}
+
+double _intersectionOverUnion(
+  _DetectionCandidate first,
+  _DetectionCandidate second,
+) {
+  final double intersectionWidth = math.max(
+    0,
+    math.min(first.right, second.right) - math.max(first.left, second.left),
+  );
+  final double intersectionHeight = math.max(
+    0,
+    math.min(first.bottom, second.bottom) - math.max(first.top, second.top),
+  );
+  final double intersection = intersectionWidth * intersectionHeight;
+  final double firstArea =
+      (first.right - first.left) * (first.bottom - first.top);
+  final double secondArea =
+      (second.right - second.left) * (second.bottom - second.top);
+  final double union = firstArea + secondArea - intersection;
+  return union <= 0 ? 0 : intersection / union;
 }
 
 /// TensorFlow Lite adapter. Preprocessing and inference run off the UI isolate.
@@ -81,9 +218,50 @@ class TfliteHornetDetector implements OnDeviceHornetDetector {
   ///
   /// Exposed so the contract can be asserted without a model file present.
   static void validateInputShape(List<int> shape) {
-    if (shape.length != 4 || shape.last != 3) {
+    if (shape.length != 4 ||
+        shape[0] != 1 ||
+        shape[1] != 640 ||
+        shape[2] != 640 ||
+        shape[3] != 3) {
       throw StateError(
-        'Expected an NHWC image tensor with 3 channels, got $shape. '
+        'Expected the VespAI NHWC tensor [1, 640, 640, 3], got $shape. '
+        'See assets/models/README.md for the model contract.',
+      );
+    }
+  }
+
+  static VespAiLetterboxGeometry letterboxGeometry({
+    required int frameWidth,
+    required int frameHeight,
+    required int inputWidth,
+    required int inputHeight,
+  }) {
+    final double scale = math.min(
+      inputWidth / frameWidth,
+      inputHeight / frameHeight,
+    );
+    final int resizedWidth = (frameWidth * scale).round();
+    final int resizedHeight = (frameHeight * scale).round();
+    final double horizontalPadding = (inputWidth - resizedWidth) / 2.0;
+    final double verticalPadding = (inputHeight - resizedHeight) / 2.0;
+    return VespAiLetterboxGeometry(
+      scale: scale,
+      resizedWidth: resizedWidth,
+      resizedHeight: resizedHeight,
+      horizontalPadding: horizontalPadding,
+      verticalPadding: verticalPadding,
+      padLeft: (horizontalPadding - 0.1).round(),
+      padTop: (verticalPadding - 0.1).round(),
+    );
+  }
+
+  static void validateOutputShape(List<int> shape) {
+    if (shape.length != 3 ||
+        shape[0] != 1 ||
+        shape[1] != 25200 ||
+        shape[2] != 7) {
+      throw StateError(
+        'Expected the VespAI output tensor [1, 25200, 7], got $shape. '
         'See assets/models/README.md for the model contract.',
       );
     }
@@ -100,11 +278,23 @@ class TfliteHornetDetector implements OnDeviceHornetDetector {
   static Future<TfliteHornetDetector> fromAsset({
     required String assetPath,
     required String modelVersion,
-    TfliteOutputDecoder decoder = const SixColumnDetectionDecoder(),
+    TfliteOutputDecoder decoder = const VespAiYoloV5Decoder(),
   }) async {
     final Interpreter interpreter = await Interpreter.fromAsset(assetPath);
     try {
-      validateInputShape(interpreter.getInputTensor(0).shape);
+      final Tensor input = interpreter.getInputTensor(0);
+      final List<Tensor> outputs = interpreter.getOutputTensors();
+      validateInputShape(input.shape);
+      if (input.type != TensorType.float32) {
+        throw StateError('Expected a float32 VespAI input tensor.');
+      }
+      if (outputs.length != 1) {
+        throw StateError('Expected one VespAI output tensor.');
+      }
+      validateOutputShape(outputs.single.shape);
+      if (outputs.single.type != TensorType.float32) {
+        throw StateError('Expected a float32 VespAI output tensor.');
+      }
     } on Object {
       interpreter.close();
       rethrow;
@@ -151,7 +341,13 @@ class TfliteHornetDetector implements OnDeviceHornetDetector {
           index: outputs[index],
       },
     );
-    final List<OnDeviceDetection> detections = decoder.decode(outputs);
+    final List<OnDeviceDetection> detections = decoder.decode(
+      outputs,
+      frameWidth: image.width,
+      frameHeight: image.height,
+      inputWidth: inputTensor.shape[2],
+      inputHeight: inputTensor.shape[1],
+    );
     stopwatch.stop();
     return OnDeviceDetectionResult(
       hornetCount: detections.length,
@@ -244,16 +440,33 @@ class _PreprocessRequest {
 Uint8List _preprocess(_PreprocessRequest request) {
   final int pixelCount = request.targetWidth * request.targetHeight;
   final Float32List? floats = request.floatInput
-      ? Float32List(pixelCount * 3)
+      ? (Float32List(pixelCount * 3)..fillRange(
+          0,
+          pixelCount * 3,
+          VespAiLetterboxGeometry.paddingValue / 255.0,
+        ))
       : null;
   final Uint8List? bytes = request.floatInput
       ? null
-      : Uint8List(pixelCount * 3);
+      : (Uint8List(pixelCount * 3)
+          ..fillRange(0, pixelCount * 3, VespAiLetterboxGeometry.paddingValue));
 
-  for (int targetY = 0; targetY < request.targetHeight; targetY++) {
-    final int sourceY = targetY * request.frame.height ~/ request.targetHeight;
-    for (int targetX = 0; targetX < request.targetWidth; targetX++) {
-      final int sourceX = targetX * request.frame.width ~/ request.targetWidth;
+  final VespAiLetterboxGeometry geometry =
+      TfliteHornetDetector.letterboxGeometry(
+        frameWidth: request.frame.width,
+        frameHeight: request.frame.height,
+        inputWidth: request.targetWidth,
+        inputHeight: request.targetHeight,
+      );
+
+  for (int resizedY = 0; resizedY < geometry.resizedHeight; resizedY++) {
+    final int targetY = geometry.padTop + resizedY;
+    final int sourceY =
+        resizedY * request.frame.height ~/ geometry.resizedHeight;
+    for (int resizedX = 0; resizedX < geometry.resizedWidth; resizedX++) {
+      final int targetX = geometry.padLeft + resizedX;
+      final int sourceX =
+          resizedX * request.frame.width ~/ geometry.resizedWidth;
       final (int, int, int) rgb = _rgbAt(request.frame, sourceX, sourceY);
       final int offset = (targetY * request.targetWidth + targetX) * 3;
       if (floats != null) {

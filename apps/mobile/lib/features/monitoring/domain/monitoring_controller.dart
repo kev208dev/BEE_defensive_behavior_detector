@@ -158,7 +158,7 @@ class MonitoringController extends Notifier<MonitoringState> {
       _camera = null;
       state = state.copyWith(
         starting: false,
-        errorMessage: '온디바이스 탐지 모델을 시작할 수 없습니다.',
+        errorMessage: '말벌 탐지 모델을 불러올 수 없습니다.',
       );
       return false;
     }

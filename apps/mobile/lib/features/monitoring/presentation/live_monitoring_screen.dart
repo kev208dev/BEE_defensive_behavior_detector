@@ -353,7 +353,7 @@ class _PipelineInfo extends StatelessWidget {
                 // model watching a quiet hive.
                 : AppConfig.usesMockDetector
                 ? '${state.modelVersion} · 실제 탐지 안 함'
-                : state.modelVersion,
+                : '${state.modelVersion} · 실제 탐지 중',
           ),
           const SizedBox(height: AppSpacing.sm),
           _InfoRow(

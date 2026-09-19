@@ -97,7 +97,7 @@ class SettingsScreen extends ConsumerWidget {
             label: '탐지 모델 모드',
             value: AppConfig.usesMockDetector
                 ? '${AppConfig.modelMode} (실제 탐지 안 함)'
-                : AppConfig.modelMode,
+                : '${AppConfig.modelMode} (실제 탐지 중)',
           ),
           _InfoTile(
             label: '경보 감시',
