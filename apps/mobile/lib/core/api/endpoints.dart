@@ -13,6 +13,7 @@ abstract final class Endpoints {
   static String alert(String id) => '/api/alerts/$id';
 
   static const String frame = '/api/monitor/frame';
+  static const String observation = '/api/monitor/observation';
   static const String audio = '/api/monitor/audio';
   static const String heartbeat = '/api/monitor/heartbeat';
 

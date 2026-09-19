@@ -30,8 +30,12 @@ class MonitoringState {
     this.audioProbability = 0,
     this.lastUploadAt,
     this.lastAudioUploadAt,
-    this.framesUploaded = 0,
-    this.framesDropped = 0,
+    this.observationsUploaded = 0,
+    this.observationsDropped = 0,
+    this.inferenceMs = 0,
+    this.modelVersion = '',
+    this.inferenceInProgress = false,
+    this.lastDetectionAt,
     this.lastAlertId,
     this.errorMessage,
     this.uploadFailure,
@@ -65,8 +69,12 @@ class MonitoringState {
 
   final DateTime? lastUploadAt;
   final DateTime? lastAudioUploadAt;
-  final int framesUploaded;
-  final int framesDropped;
+  final int observationsUploaded;
+  final int observationsDropped;
+  final int inferenceMs;
+  final String modelVersion;
+  final bool inferenceInProgress;
+  final DateTime? lastDetectionAt;
 
   /// Set when the backend reported that this frame raised an alert.
   final String? lastAlertId;
@@ -78,10 +86,7 @@ class MonitoringState {
   final Failure? uploadFailure;
 
   bool get canStart =>
-      hiveId != null &&
-      cameraPermission.isGranted &&
-      !monitoring &&
-      !starting;
+      hiveId != null && cameraPermission.isGranted && !monitoring && !starting;
 
   bool get hasEverUploaded => lastUploadAt != null;
 
@@ -103,8 +108,12 @@ class MonitoringState {
     double? audioProbability,
     DateTime? lastUploadAt,
     DateTime? lastAudioUploadAt,
-    int? framesUploaded,
-    int? framesDropped,
+    int? observationsUploaded,
+    int? observationsDropped,
+    int? inferenceMs,
+    String? modelVersion,
+    bool? inferenceInProgress,
+    DateTime? lastDetectionAt,
     String? lastAlertId,
     String? errorMessage,
     Failure? uploadFailure,
@@ -132,8 +141,12 @@ class MonitoringState {
       audioProbability: audioProbability ?? this.audioProbability,
       lastUploadAt: lastUploadAt ?? this.lastUploadAt,
       lastAudioUploadAt: lastAudioUploadAt ?? this.lastAudioUploadAt,
-      framesUploaded: framesUploaded ?? this.framesUploaded,
-      framesDropped: framesDropped ?? this.framesDropped,
+      observationsUploaded: observationsUploaded ?? this.observationsUploaded,
+      observationsDropped: observationsDropped ?? this.observationsDropped,
+      inferenceMs: inferenceMs ?? this.inferenceMs,
+      modelVersion: modelVersion ?? this.modelVersion,
+      inferenceInProgress: inferenceInProgress ?? this.inferenceInProgress,
+      lastDetectionAt: lastDetectionAt ?? this.lastDetectionAt,
       lastAlertId: lastAlertId ?? this.lastAlertId,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       uploadFailure: clearUploadFailure

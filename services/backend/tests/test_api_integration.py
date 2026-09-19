@@ -8,6 +8,7 @@ endpoints can then read it back.
 from __future__ import annotations
 
 import io
+from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -26,6 +27,40 @@ def upload_frame(client: TestClient, hive_id: str, seed: int = 0):
         "/api/monitor/frame",
         data={"hive_id": hive_id, "device_id": "phone-monitor-1"},
         files={"image": (f"frame{seed}.jpg", jpeg_bytes(seed), "image/jpeg")},
+    )
+
+
+def upload_observation(
+    client: TestClient,
+    hive_id: str,
+    *,
+    hornet_count: int,
+    timestamp: datetime,
+    max_confidence: float = 0.9,
+):
+    detections = [
+        {
+            "confidence": max_confidence,
+            "x": 0.1,
+            "y": 0.2,
+            "width": 0.3,
+            "height": 0.4,
+            "class_name": "hornet",
+        }
+        for _ in range(hornet_count)
+    ]
+    return client.post(
+        "/api/monitor/observation",
+        json={
+            "hive_id": hive_id,
+            "device_id": "phone-monitor-edge-1",
+            "timestamp": timestamp.isoformat(),
+            "hornet_count": hornet_count,
+            "max_confidence": max_confidence if hornet_count else 0.0,
+            "detections": detections,
+            "inference_ms": 38,
+            "model_version": "mock-v1",
+        },
     )
 
 
@@ -91,6 +126,92 @@ def test_frame_upload_stores_a_snapshot(client: TestClient) -> None:
 
     assert body["snapshot_url"] is not None
     assert body["snapshot_url"].endswith(".jpg")
+
+
+def test_observation_upload_persists_count_and_growth(client: TestClient) -> None:
+    base = datetime(2026, 9, 19, 12, 0, 0)
+
+    for index, count in enumerate((0, 1, 2, 4)):
+        response = upload_observation(
+            client,
+            "hive-a",
+            hornet_count=count,
+            timestamp=base + timedelta(seconds=index),
+        )
+        assert response.status_code == 200
+
+    body = response.json()
+    detail = client.get("/api/hives/hive-a").json()
+
+    assert body["hornet_count"] == 4
+    assert body["confidence"] == 0.9
+    assert body["snapshot_url"] is None
+    assert detail["id"] == "hive-a"
+    assert detail["hornet_count"] == 4
+    assert detail["max_hornet_count"] == 4
+    assert detail["growth_per_second"] > 0
+    assert detail["persistence_ratio"] > 0
+
+
+def test_observation_upload_uses_existing_risk_and_alert_pipeline(
+    client: TestClient,
+) -> None:
+    base = datetime(2026, 9, 19, 12, 0, 0)
+    statuses: list[str] = []
+
+    for index in range(12):
+        response = upload_observation(
+            client,
+            "hive-b",
+            hornet_count=6,
+            timestamp=base + timedelta(seconds=index),
+            max_confidence=0.96,
+        )
+        assert response.status_code == 200
+        statuses.append(response.json()["status"])
+
+    alerts = client.get(
+        "/api/alerts", params={"hive_id": "hive-b", "severity": "DANGER"}
+    ).json()
+
+    assert "DANGER" in statuses
+    assert len(alerts) == 1
+
+
+def test_observation_upload_rejects_invalid_metadata(client: TestClient) -> None:
+    invalid_payloads = [
+        {"hornet_count": -1, "max_confidence": 0.5, "detections": []},
+        {"hornet_count": 1, "max_confidence": 1.1, "detections": []},
+        {
+            "hornet_count": 1,
+            "max_confidence": 0.9,
+            "detections": [
+                {
+                    "confidence": 0.9,
+                    "x": 0.9,
+                    "y": 0.2,
+                    "width": 0.3,
+                    "height": 0.4,
+                    "class_name": "hornet",
+                }
+            ],
+        },
+        {"hornet_count": 0, "max_confidence": 0.0, "detections": [], "inference_ms": -1},
+    ]
+
+    for invalid in invalid_payloads:
+        response = client.post(
+            "/api/monitor/observation",
+            json={
+                "hive_id": "hive-a",
+                "device_id": "phone-monitor-edge-1",
+                "timestamp": "2026-09-19T12:00:00",
+                "inference_ms": 10,
+                "model_version": "mock-v1",
+                **invalid,
+            },
+        )
+        assert response.status_code == 422
 
 
 def test_audio_upload_returns_the_documented_shape(client: TestClient) -> None:

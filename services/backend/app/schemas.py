@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.enums import AlertSeverity, HiveStatus, PairingFailure, PairingStatus
 
@@ -139,6 +139,44 @@ class FrameResponse(BaseModel):
     audio_probability: float = 0.0
     snapshot_url: str | None = None
     alert_id: str | None = None
+
+
+class ObservationDetection(BaseModel):
+    """One normalized bounding box produced on the monitoring phone."""
+
+    confidence: float = Field(ge=0.0, le=1.0)
+    x: float = Field(ge=0.0, le=1.0)
+    y: float = Field(ge=0.0, le=1.0)
+    width: float = Field(gt=0.0, le=1.0)
+    height: float = Field(gt=0.0, le=1.0)
+    class_name: str = Field(default="hornet", min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def box_must_fit_in_frame(self) -> "ObservationDetection":
+        if self.x + self.width > 1.0 or self.y + self.height > 1.0:
+            raise ValueError("detection box must fit inside the normalized frame")
+        return self
+
+
+class ObservationRequest(BaseModel):
+    """Detection metadata produced by the phone; no image leaves the device."""
+
+    hive_id: str = Field(min_length=1, max_length=128)
+    device_id: str = Field(min_length=1, max_length=256)
+    timestamp: datetime
+    hornet_count: int = Field(ge=0, le=1000)
+    max_confidence: float = Field(ge=0.0, le=1.0)
+    detections: list[ObservationDetection] = Field(default_factory=list, max_length=1000)
+    inference_ms: int = Field(ge=0, le=600_000)
+    model_version: str = Field(min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def detections_must_match_summary(self) -> "ObservationRequest":
+        if len(self.detections) != self.hornet_count:
+            raise ValueError("hornet_count must match detections length")
+        if self.hornet_count == 0 and self.max_confidence != 0.0:
+            raise ValueError("max_confidence must be zero when no hornets are detected")
+        return self
 
 
 class AudioResponse(BaseModel):

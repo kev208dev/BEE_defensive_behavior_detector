@@ -78,8 +78,8 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SectionHeader(title: '동작 설정'),
           const _InfoTile(
-            label: '프레임 전송 주기',
-            value: '${AppConfig.frameIntervalMs}ms',
+            label: '온디바이스 분석 주기',
+            value: '${AppConfig.analysisIntervalMs}ms',
           ),
           const _InfoTile(
             label: '오디오 청크 길이',
@@ -93,12 +93,7 @@ class SettingsScreen extends ConsumerWidget {
             label: '경보 폴링 주기',
             value: '${AppConfig.alertPollIntervalSeconds}초',
           ),
-          const _InfoTile(
-            label: '프레임 최대 해상도',
-            value:
-                '${AppConfig.frameMaxDimension}px / '
-                'JPEG ${AppConfig.frameJpegQuality}',
-          ),
+          const _InfoTile(label: '탐지 모델 모드', value: AppConfig.modelMode),
           _InfoTile(
             label: '경보 감시',
             value: watcher.watching

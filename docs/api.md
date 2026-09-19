@@ -164,7 +164,40 @@ Flutter 앱은 zone designator가 없는 값을 UTC로 해석합니다.
 
 ## Monitoring uploads
 
+### `POST /api/monitor/observation`
+
+기본 vision 경로입니다. 카메라 원본은 기기에 남고 온디바이스 추론 metadata만 JSON으로 전송합니다.
+
+```json
+{
+  "hive_id": "hive-a",
+  "device_id": "phone-abc123",
+  "timestamp": "2026-09-19T12:00:00Z",
+  "hornet_count": 1,
+  "max_confidence": 0.91,
+  "detections": [
+    {
+      "confidence": 0.91,
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.3,
+      "height": 0.4,
+      "class_name": "hornet"
+    }
+  ],
+  "inference_ms": 37,
+  "model_version": "mock-v1"
+}
+```
+
+좌표는 0~1 정규화 값이며 bounding box는 frame 안에 있어야 합니다. `hornet_count`는
+`detections` 길이와 같아야 하고, 탐지가 없으면 `max_confidence`는 0입니다. 응답은 아래
+`/frame` 응답과 동일하지만 이미지가 없으므로 `snapshot_url`은 `null`입니다. 저장된 관측은
+기존 persistence/growth/audio fusion/risk/alert 파이프라인을 그대로 통과합니다.
+
 ### `POST /api/monitor/frame`
+
+이전 앱과의 호환을 위해 유지하는 legacy 경로입니다. 새 monitoring 앱은 사용하지 않습니다.
 
 `multipart/form-data`
 
@@ -376,7 +409,5 @@ token 기준 멱등입니다. FCM은 앱 재실행 시 같은 토큰을 재발�
 `simulate` 와 `observe` 는 **실제 파이프라인**(Risk Engine + Alert Manager)을 그대로 통과합니다.
 `create-alert` 만 상태 기계를 우회하며, push 경로 리허설 전용입니다.
 
-`script` 는 **실제 카메라 경로를 말벌 없이 시연**하기 위한 것입니다.
-스마트폰은 진짜 프레임을 업로드하고, mock detector가 예약된 개체 수로 응답하므로
-그 이후의 위험도 계산과 경보 생성은 전부 실제 로직입니다.
-`DETECTOR_MODE=yolo` 에서는 실제 모델이 판단하므로 no-op입니다.
+`script` 는 legacy `/api/monitor/frame` 호환 경로를 말벌 없이 시연하기 위한 도구입니다.
+새 Flutter monitoring 경로는 스마트폰의 `MODEL_MODE` detector 결과를 `/observation`으로 보냅니다.

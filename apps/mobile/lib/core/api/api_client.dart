@@ -122,6 +122,19 @@ class ApiClient {
     return FrameAnalysis.fromApi(json);
   }
 
+  /// Uploads on-device inference metadata; no camera image is transmitted.
+  Future<FrameAnalysis> uploadObservation(
+    ObservationRequest request, {
+    CancelToken? cancelToken,
+  }) async {
+    final Map<String, dynamic> json = await _postObject(
+      Endpoints.observation,
+      data: request.toJson(),
+      cancelToken: cancelToken,
+    );
+    return FrameAnalysis.fromApi(json);
+  }
+
   /// Uploads one recorded audio chunk.
   Future<AudioAnalysis> uploadAudio({
     required String hiveId,

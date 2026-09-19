@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -12,12 +13,24 @@ import '../../../core/models/requests.dart';
 import '../../../core/providers.dart';
 import 'audio_service.dart';
 import 'camera_service.dart';
-import 'frame_upload_queue.dart';
+import 'detector_factory.dart';
+import 'image_analysis_loop.dart';
 import 'monitoring_state.dart';
+import 'observation_upload_queue.dart';
+import 'on_device_hornet_detector.dart';
 import 'permission_service.dart';
 
 final Provider<PermissionService> permissionServiceProvider =
     Provider<PermissionService>((Ref ref) => const PermissionService());
+
+final Provider<CameraService Function()> cameraServiceFactoryProvider =
+    Provider<CameraService Function()>((Ref ref) => CameraService.new);
+
+final Provider<Future<OnDeviceHornetDetector> Function()>
+onDeviceDetectorFactoryProvider =
+    Provider<Future<OnDeviceHornetDetector> Function()>(
+      (Ref ref) => createOnDeviceHornetDetector,
+    );
 
 /// Drives the monitoring phone.
 ///
@@ -28,19 +41,19 @@ final Provider<PermissionService> permissionServiceProvider =
 /// provider disposal go through. That is what keeps the app from leaking the
 /// camera when the user leaves the screen mid-session.
 final NotifierProvider<MonitoringController, MonitoringState>
-    monitoringControllerProvider =
+monitoringControllerProvider =
     NotifierProvider<MonitoringController, MonitoringState>(
-  MonitoringController.new,
-);
+      MonitoringController.new,
+    );
 
 class MonitoringController extends Notifier<MonitoringState> {
   CameraService? _camera;
   AudioService? _audio;
-  FrameUploadQueue<FrameAnalysis>? _frameQueue;
+  ObservationUploadQueue<FrameAnalysis>? _observationQueue;
+  ImageAnalysisLoop? _analysisLoop;
 
-  Timer? _captureTimer;
   Timer? _heartbeatTimer;
-  StreamSubscription<UploadOutcome<FrameAnalysis>>? _frameOutcomes;
+  StreamSubscription<UploadOutcome<FrameAnalysis>>? _observationOutcomes;
   StreamSubscription<Uint8List>? _audioChunks;
 
   /// Guards against an audio upload starting before the previous finished.
@@ -127,7 +140,7 @@ class MonitoringController extends Notifier<MonitoringState> {
       }
     }
 
-    final CameraService camera = CameraService();
+    final CameraService camera = ref.read(cameraServiceFactoryProvider)();
     final String? cameraError = await camera.initialise();
     if (cameraError != null) {
       await camera.dispose();
@@ -136,20 +149,65 @@ class MonitoringController extends Notifier<MonitoringState> {
     }
     _camera = camera;
 
-    _startFrameQueue(hiveId);
-    _startCaptureTimer();
-    _startHeartbeat(hiveId);
-    // The microphone is optional — monitoring proceeds without it.
-    final bool audioReady = await _startAudio(hiveId);
+    final OnDeviceHornetDetector detector;
+    try {
+      detector = await ref.read(onDeviceDetectorFactoryProvider)();
+    } on Object catch (error) {
+      debugPrint('MonitoringController: detector failed to load — $error');
+      await camera.dispose();
+      _camera = null;
+      state = state.copyWith(
+        starting: false,
+        errorMessage: '온디바이스 탐지 모델을 시작할 수 없습니다.',
+      );
+      return false;
+    }
+
+    _startObservationQueue(hiveId);
+    final ImageAnalysisLoop analysisLoop = ImageAnalysisLoop(
+      detector: detector,
+      interval: AppConfig.analysisInterval,
+      onDetection: _onDeviceDetection,
+      onBusyChanged: (bool busy) {
+        if (state.monitoring) {
+          state = state.copyWith(inferenceInProgress: busy);
+        }
+      },
+    );
+    _analysisLoop = analysisLoop;
 
     state = state.copyWith(
       monitoring: true,
       starting: false,
       cameraReady: true,
-      audioReady: audioReady,
       cameraController: camera.controller,
       clearError: true,
     );
+    final String? streamError = await camera.startImageStream((
+      CameraImage image,
+    ) {
+      final int before = analysisLoop.droppedWhileBusy;
+      analysisLoop.add(image);
+      if (analysisLoop.droppedWhileBusy != before) {
+        _refreshDroppedCount();
+      }
+    });
+    if (streamError != null) {
+      await _teardown();
+      state = state.copyWith(
+        monitoring: false,
+        cameraReady: false,
+        clearCameraController: true,
+        errorMessage: streamError,
+      );
+      return false;
+    }
+
+    _startHeartbeat(hiveId);
+    // The microphone is optional — monitoring proceeds without it.
+    final bool audioReady = await _startAudio(hiveId);
+
+    state = state.copyWith(audioReady: audioReady, clearError: true);
 
     // Send one heartbeat straight away so the hive leaves OFFLINE promptly
     // rather than after a full interval.
@@ -165,56 +223,73 @@ class MonitoringController extends Notifier<MonitoringState> {
       starting: false,
       cameraReady: false,
       audioReady: false,
+      inferenceInProgress: false,
       clearCameraController: true,
     );
   }
 
   // ------------------------------------------------------------------
-  // Frames
+  // Vision observations
   // ------------------------------------------------------------------
 
-  void _startFrameQueue(String hiveId) {
+  void _startObservationQueue(String hiveId) {
     final ApiClient api = ref.read(apiClientProvider);
     final String deviceId = ref.read(deviceIdProvider);
 
-    final FrameUploadQueue<FrameAnalysis> queue =
-        FrameUploadQueue<FrameAnalysis>(
-      upload: (PendingFrame frame) => api.uploadFrame(
-        hiveId: hiveId,
-        deviceId: deviceId,
-        jpegBytes: frame.bytes,
-        timestamp: frame.capturedAt,
-      ),
-    );
+    final ObservationUploadQueue<FrameAnalysis> queue =
+        ObservationUploadQueue<FrameAnalysis>(
+          upload: (PendingObservation observation) => api.uploadObservation(
+            ObservationRequest(
+              hiveId: hiveId,
+              deviceId: deviceId,
+              timestamp: observation.observedAt,
+              hornetCount: observation.result.hornetCount,
+              maxConfidence: observation.result.maxConfidence,
+              detections: observation.result.detections
+                  .map(
+                    (OnDeviceDetection item) => ObservationDetectionRequest(
+                      confidence: item.confidence,
+                      x: item.x,
+                      y: item.y,
+                      width: item.width,
+                      height: item.height,
+                      className: item.className,
+                    ),
+                  )
+                  .toList(growable: false),
+              inferenceMs: observation.result.inferenceMs,
+              modelVersion: observation.result.modelVersion,
+            ),
+          ),
+        );
 
-    _frameOutcomes = queue.outcomes.listen(_onFrameOutcome);
-    _frameQueue = queue;
+    _observationOutcomes = queue.outcomes.listen(_onObservationOutcome);
+    _observationQueue = queue;
   }
 
-  void _startCaptureTimer() {
-    _captureTimer = Timer.periodic(
-      AppConfig.frameInterval,
-      (Timer _) => unawaited(_captureAndSubmit()),
+  void _onDeviceDetection(OnDeviceDetectionResult result, DateTime observedAt) {
+    if (!state.monitoring) return;
+    state = state.copyWith(
+      hornetCount: result.hornetCount,
+      confidence: result.maxConfidence,
+      inferenceMs: result.inferenceMs,
+      modelVersion: result.modelVersion,
+      lastDetectionAt: observedAt,
     );
+    _observationQueue?.submit(result, observedAt: observedAt);
+    _refreshDroppedCount();
   }
 
-  Future<void> _captureAndSubmit() async {
-    final CameraService? camera = _camera;
-    final FrameUploadQueue<FrameAnalysis>? queue = _frameQueue;
-    if (camera == null || queue == null || !state.monitoring) return;
-
-    final Uint8List? bytes = await camera.captureFrame();
-    if (bytes == null || bytes.isEmpty) return;
-
-    queue.submit(bytes);
-    // Surface the drop counter so the live screen can show that the network,
-    // not the detector, is the bottleneck.
-    if (queue.droppedCount != state.framesDropped) {
-      state = state.copyWith(framesDropped: queue.droppedCount);
+  void _refreshDroppedCount() {
+    final int dropped =
+        (_analysisLoop?.droppedWhileBusy ?? 0) +
+        (_observationQueue?.droppedCount ?? 0);
+    if (dropped != state.observationsDropped) {
+      state = state.copyWith(observationsDropped: dropped);
     }
   }
 
-  void _onFrameOutcome(UploadOutcome<FrameAnalysis> outcome) {
+  void _onObservationOutcome(UploadOutcome<FrameAnalysis> outcome) {
     if (outcome.succeeded && outcome.value != null) {
       final FrameAnalysis analysis = outcome.value!;
       ref.read(connectionProvider.notifier).report(success: true);
@@ -226,7 +301,8 @@ class MonitoringController extends Notifier<MonitoringState> {
         confidence: analysis.confidence,
         audioProbability: analysis.audioProbability,
         lastUploadAt: DateTime.now(),
-        framesUploaded: _frameQueue?.uploadedCount ?? state.framesUploaded,
+        observationsUploaded:
+            _observationQueue?.uploadedCount ?? state.observationsUploaded,
         lastAlertId: analysis.alertId,
         clearUploadFailure: true,
       );
@@ -237,7 +313,7 @@ class MonitoringController extends Notifier<MonitoringState> {
     ref
         .read(connectionProvider.notifier)
         .report(success: !failure.isConnectivityProblem);
-    // Monitoring keeps running — a failed frame is not a failed session.
+    // Monitoring keeps running — a failed observation is not a failed session.
     state = state.copyWith(uploadFailure: failure);
   }
 
@@ -252,8 +328,9 @@ class MonitoringController extends Notifier<MonitoringState> {
     }
 
     final AudioService audio = AudioService();
-    final String? error =
-        await audio.start(chunkDuration: AppConfig.audioChunkDuration);
+    final String? error = await audio.start(
+      chunkDuration: AppConfig.audioChunkDuration,
+    );
     if (error != null) {
       debugPrint('MonitoringController: audio unavailable — $error');
       await audio.dispose();
@@ -274,13 +351,14 @@ class MonitoringController extends Notifier<MonitoringState> {
     _audioUploadInFlight = true;
 
     try {
-      final AudioAnalysis analysis =
-          await ref.read(apiClientProvider).uploadAudio(
-                hiveId: hiveId,
-                deviceId: ref.read(deviceIdProvider),
-                audioBytes: bytes,
-                timestamp: DateTime.now(),
-              );
+      final AudioAnalysis analysis = await ref
+          .read(apiClientProvider)
+          .uploadAudio(
+            hiveId: hiveId,
+            deviceId: ref.read(deviceIdProvider),
+            audioBytes: bytes,
+            timestamp: DateTime.now(),
+          );
       state = state.copyWith(
         audioProbability: analysis.hornetProbability,
         lastAudioUploadAt: DateTime.now(),
@@ -307,7 +385,9 @@ class MonitoringController extends Notifier<MonitoringState> {
 
   Future<void> _sendHeartbeat(String hiveId) async {
     try {
-      await ref.read(apiClientProvider).sendHeartbeat(
+      await ref
+          .read(apiClientProvider)
+          .sendHeartbeat(
             HeartbeatRequest(
               hiveId: hiveId,
               deviceId: ref.read(deviceIdProvider),
@@ -334,29 +414,30 @@ class MonitoringController extends Notifier<MonitoringState> {
   /// subscriptions, then the hardware. Each step is independently guarded so
   /// one failure cannot leave the camera held.
   Future<void> _teardown() async {
-    _captureTimer?.cancel();
-    _captureTimer = null;
-
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
-
-    await _frameOutcomes?.cancel();
-    _frameOutcomes = null;
 
     await _audioChunks?.cancel();
     _audioChunks = null;
 
-    final FrameUploadQueue<FrameAnalysis>? queue = _frameQueue;
-    _frameQueue = null;
+    final CameraService? camera = _camera;
+    _camera = null;
+    await camera?.dispose();
+
+    final ImageAnalysisLoop? analysisLoop = _analysisLoop;
+    _analysisLoop = null;
+    await analysisLoop?.dispose();
+
+    await _observationOutcomes?.cancel();
+    _observationOutcomes = null;
+
+    final ObservationUploadQueue<FrameAnalysis>? queue = _observationQueue;
+    _observationQueue = null;
     await queue?.dispose();
 
     final AudioService? audio = _audio;
     _audio = null;
     await audio?.dispose();
-
-    final CameraService? camera = _camera;
-    _camera = null;
-    await camera?.dispose();
 
     _audioUploadInFlight = false;
   }

@@ -85,6 +85,38 @@ def process_frame(
 
     snapshot_path = store_snapshot(image, hive.id, settings) if store_image else None
 
+    return process_detection_observation(
+        session=session,
+        settings=settings,
+        hive=hive,
+        sender=sender,
+        detection=detection,
+        device_id=device_id,
+        timestamp=now,
+        snapshot_path=snapshot_path,
+    )
+
+
+def process_detection_observation(
+    *,
+    session: Session,
+    settings: Settings,
+    hive: Hive,
+    sender: NotificationSender,
+    detection: DetectionResult,
+    device_id: str | None = None,
+    timestamp: datetime | None = None,
+    snapshot_path: str | None = None,
+) -> FrameOutcome:
+    """Persist a detection and run the shared risk/alert pipeline.
+
+    The legacy frame endpoint performs backend inference before entering here;
+    the observation endpoint enters with inference already completed on the
+    phone. Both therefore produce identical history, growth, fusion and alert
+    behaviour.
+    """
+    now = timestamp or datetime.utcnow()
+
     session.add(
         VisionDetection(
             hive_id=hive.id,
@@ -169,15 +201,6 @@ def record_observation(
     Deliberately shares :func:`_advance_state` with the real frame path so a
     simulated attack exercises the identical risk and alert logic.
     """
-    session.add(
-        VisionDetection(
-            hive_id=hive.id,
-            device_id="demo-simulator",
-            timestamp=timestamp,
-            hornet_count=hornet_count,
-            max_confidence=max_confidence if hornet_count else 0.0,
-        )
-    )
     if audio_probability is not None:
         session.add(
             AudioDetection(
@@ -187,19 +210,18 @@ def record_observation(
                 hornet_probability=audio_probability,
             )
         )
-    session.flush()
-
     detection = DetectionResult(
         hornet_count=hornet_count,
         max_confidence=max_confidence if hornet_count else 0.0,
     )
-    return _advance_state(
+    return process_detection_observation(
         session=session,
         settings=settings,
         hive=hive,
         sender=sender,
-        now=timestamp,
         detection=detection,
+        device_id="demo-simulator",
+        timestamp=timestamp,
         snapshot_path=hive.latest_snapshot_path,
     )
 

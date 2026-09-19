@@ -30,6 +30,53 @@ class HeartbeatRequest {
   Map<String, dynamic> toJson() => _$HeartbeatRequestToJson(this);
 }
 
+@JsonSerializable(fieldRename: FieldRename.snake, createFactory: false)
+class ObservationDetectionRequest {
+  const ObservationDetectionRequest({
+    required this.confidence,
+    required this.x,
+    required this.y,
+    required this.width,
+    required this.height,
+    required this.className,
+  });
+
+  final double confidence;
+  final double x;
+  final double y;
+  final double width;
+  final double height;
+  final String className;
+
+  Map<String, dynamic> toJson() => _$ObservationDetectionRequestToJson(this);
+}
+
+/// Body of `POST /api/monitor/observation`.
+@JsonSerializable(fieldRename: FieldRename.snake, createFactory: false)
+class ObservationRequest {
+  const ObservationRequest({
+    required this.hiveId,
+    required this.deviceId,
+    required this.timestamp,
+    required this.hornetCount,
+    required this.maxConfidence,
+    required this.detections,
+    required this.inferenceMs,
+    required this.modelVersion,
+  });
+
+  final String hiveId;
+  final String deviceId;
+  final DateTime timestamp;
+  final int hornetCount;
+  final double maxConfidence;
+  final List<ObservationDetectionRequest> detections;
+  final int inferenceMs;
+  final String modelVersion;
+
+  Map<String, dynamic> toJson() => _$ObservationRequestToJson(this);
+}
+
 /// Body of `POST /api/devices`.
 @JsonSerializable(fieldRename: FieldRename.snake, createFactory: false)
 class DeviceRegistrationRequest {

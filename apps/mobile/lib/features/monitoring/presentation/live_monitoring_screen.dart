@@ -44,9 +44,7 @@ class _LiveMonitoringScreenState extends ConsumerState<LiveMonitoringScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(
-            state.hiveName.isEmpty ? '실시간 모니터링' : state.hiveName,
-          ),
+          title: Text(state.hiveName.isEmpty ? '실시간 모니터링' : state.hiveName),
           actions: <Widget>[
             Padding(
               padding: const EdgeInsets.only(right: AppSpacing.lg),
@@ -71,10 +69,7 @@ class _LiveMonitoringScreenState extends ConsumerState<LiveMonitoringScreen> {
               ],
               if (state.errorMessage != null) ...<Widget>[
                 const SizedBox(height: AppSpacing.md),
-                _InlineWarning(
-                  message: state.errorMessage!,
-                  severe: true,
-                ),
+                _InlineWarning(message: state.errorMessage!, severe: true),
               ],
               const SizedBox(height: AppSpacing.xl),
               if (state.monitoring)
@@ -93,8 +88,8 @@ class _LiveMonitoringScreenState extends ConsumerState<LiveMonitoringScreen> {
                   busy: state.starting,
                   onPressed: state.canStart
                       ? () => ref
-                          .read(monitoringControllerProvider.notifier)
-                          .startMonitoring()
+                            .read(monitoringControllerProvider.notifier)
+                            .startMonitoring()
                       : null,
                 ),
               const SizedBox(height: AppSpacing.xl),
@@ -172,10 +167,7 @@ class _CameraPreview extends StatelessWidget {
                         size: 36,
                       ),
                       SizedBox(height: AppSpacing.sm),
-                      Text(
-                        '카메라가 준비되지 않았습니다',
-                        style: AppTypography.bodyMedium,
-                      ),
+                      Text('카메라가 준비되지 않았습니다', style: AppTypography.bodyMedium),
                     ],
                   ),
                 ),
@@ -280,9 +272,7 @@ class _MetricsGrid extends StatelessWidget {
                 value: '${state.hornetCount}',
                 unit: '마리',
                 icon: Icons.bug_report_outlined,
-                accent: state.hornetCount > 0
-                    ? AppColors.statusCaution
-                    : null,
+                accent: state.hornetCount > 0 ? AppColors.statusCaution : null,
               ),
             ),
             const SizedBox(width: AppSpacing.md),
@@ -341,11 +331,30 @@ class _PipelineInfo extends StatelessWidget {
       child: Column(
         children: <Widget>[
           _InfoRow(
+            label: '온디바이스 탐지',
+            value: !state.monitoring
+                ? '중지됨'
+                : (state.inferenceInProgress ? '분석 중' : '스트림 대기 중'),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _InfoRow(
+            label: '최근 추론 시간',
+            value: state.lastDetectionAt == null
+                ? '아직 없음'
+                : '${state.inferenceMs} ms',
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _InfoRow(
+            label: '탐지 모델',
+            value: state.modelVersion.isEmpty ? '초기화 중' : state.modelVersion,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _InfoRow(
             label: '마지막 업로드',
             value: state.lastUploadAt == null
                 ? '아직 없음'
                 : '${Formatters.clockTime(state.lastUploadAt)} '
-                    '(${Formatters.relativeTime(state.lastUploadAt)})',
+                      '(${Formatters.relativeTime(state.lastUploadAt)})',
           ),
           const SizedBox(height: AppSpacing.sm),
           _InfoRow(
@@ -356,8 +365,9 @@ class _PipelineInfo extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           _InfoRow(
-            label: '전송 / 드롭 프레임',
-            value: '${state.framesUploaded} / ${state.framesDropped}',
+            label: '전송 / 드롭 관측치',
+            value:
+                '${state.observationsUploaded} / ${state.observationsDropped}',
           ),
         ],
       ),
@@ -390,8 +400,9 @@ class _InlineWarning extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color color =
-        severe ? AppColors.statusDanger : AppColors.statusCaution;
+    final Color color = severe
+        ? AppColors.statusDanger
+        : AppColors.statusCaution;
     return Container(
       padding: AppSpacing.card,
       decoration: BoxDecoration(

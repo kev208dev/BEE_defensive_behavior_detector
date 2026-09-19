@@ -10,6 +10,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, File, Form, UploadFile
 
+from app.ai.detector import Detection, DetectionResult
 from app.ai.factory import get_audio_classifier, get_detector
 from app.api import mappers
 from app.api.deps import SessionDep, SettingsDep, get_hive_or_404
@@ -19,6 +20,7 @@ from app.schemas import (
     FrameResponse,
     HeartbeatRequest,
     HeartbeatResponse,
+    ObservationRequest,
 )
 from app.services import hive_state, pipeline
 from app.services.pairing import bind_device_to_hive
@@ -84,6 +86,54 @@ async def upload_frame(
         max_hornet_count=breakdown.recent_max_hornet_count,
         audio_probability=breakdown.audio_probability,
         snapshot_url=mappers.snapshot_url(outcome.snapshot_path, settings),
+        alert_id=outcome.alert.id if outcome.alert else None,
+    )
+
+
+@router.post("/observation", response_model=FrameResponse)
+def upload_observation(
+    payload: ObservationRequest,
+    session: SessionDep,
+    settings: SettingsDep,
+) -> FrameResponse:
+    """Accept on-device detection metadata without receiving a camera image."""
+    hive = get_hive_or_404(session, payload.hive_id)
+    detection = DetectionResult(
+        hornet_count=payload.hornet_count,
+        max_confidence=payload.max_confidence,
+        detections=[
+            Detection(
+                x1=item.x,
+                y1=item.y,
+                x2=item.x + item.width,
+                y2=item.y + item.height,
+                confidence=item.confidence,
+                class_name=item.class_name,
+            )
+            for item in payload.detections
+        ],
+    )
+    outcome = pipeline.process_detection_observation(
+        session=session,
+        settings=settings,
+        hive=hive,
+        sender=get_sender(settings),
+        detection=detection,
+        device_id=payload.device_id,
+        timestamp=payload.timestamp,
+    )
+
+    evaluation = outcome.evaluation
+    breakdown = evaluation.assessment.breakdown
+    return FrameResponse(
+        status=evaluation.assessment.status,
+        risk_score=evaluation.assessment.score_int,
+        hornet_count=detection.hornet_count,
+        confidence=round(detection.max_confidence, 4),
+        processed_at=datetime.utcnow(),
+        max_hornet_count=breakdown.recent_max_hornet_count,
+        audio_probability=breakdown.audio_probability,
+        snapshot_url=None,
         alert_id=outcome.alert.id if outcome.alert else None,
     )
 

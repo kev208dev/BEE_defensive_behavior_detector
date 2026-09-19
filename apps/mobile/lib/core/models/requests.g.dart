@@ -16,6 +16,29 @@ Map<String, dynamic> _$HeartbeatRequestToJson(HeartbeatRequest instance) =>
       'monitoring': instance.monitoring,
     };
 
+Map<String, dynamic> _$ObservationDetectionRequestToJson(
+  ObservationDetectionRequest instance,
+) => <String, dynamic>{
+  'confidence': instance.confidence,
+  'x': instance.x,
+  'y': instance.y,
+  'width': instance.width,
+  'height': instance.height,
+  'class_name': instance.className,
+};
+
+Map<String, dynamic> _$ObservationRequestToJson(ObservationRequest instance) =>
+    <String, dynamic>{
+      'hive_id': instance.hiveId,
+      'device_id': instance.deviceId,
+      'timestamp': instance.timestamp.toIso8601String(),
+      'hornet_count': instance.hornetCount,
+      'max_confidence': instance.maxConfidence,
+      'detections': instance.detections,
+      'inference_ms': instance.inferenceMs,
+      'model_version': instance.modelVersion,
+    };
+
 Map<String, dynamic> _$DeviceRegistrationRequestToJson(
   DeviceRegistrationRequest instance,
 ) => <String, dynamic>{

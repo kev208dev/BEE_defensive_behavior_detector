@@ -19,8 +19,8 @@
 
 | 단계 | 내용 |
 |---|---|
-| 관찰 | 벌통 앞 스마트폰이 약 1초에 1장 frame, 3초 단위 audio chunk를 서버로 전송 |
-| 분석 | Vision AI가 말벌 개체 수를, Audio AI가 말벌 음향 확률을 산출 |
+| 관찰 | 벌통 앞 스마트폰이 연속 camera stream에서 약 1초마다 표본을 골라 온디바이스 추론하고, 3초 단위 audio chunk를 전송 |
+| 분석 | 스마트폰 Vision AI가 말벌 개체 수를, 서버 Audio AI가 말벌 음향 확률을 산출 |
 | 판단 | Risk Engine이 최근 30초 관측 이력을 종합해 0~100 위험 점수 계산 |
 | 경보 | NORMAL → CAUTION → DANGER 상태 전이 시점에만 Alert 생성 |
 | 전달 | DANGER Alert 발생 시 관리자 스마트폰으로 Push, 탭하면 판단 근거 화면으로 이동 |
@@ -42,12 +42,13 @@ heartbeat가 일정 시간 없으면 위험 점수와 무관하게 OFFLINE으로
 │  mic ─────┤            │                      │   Hive List / Detail   │
 │           ▼            │                      │   Alert List / Detail  │
 │  CameraService         │                      │           ▲            │
+│  OnDeviceDetector      │                      │           │            │
 │  AudioService          │                      │           │            │
-│  FrameUploadQueue      │                      │   FCM Push   또는       │
+│  ObservationUploadQueue│                      │   FCM Push   또는       │
 │  HeartbeatService      │                      │   AlertWatcher 폴링     │
 └──────────┬─────────────┘                      └───────────▲────────────┘
-           │ multipart/form-data                            │
-           │ POST /api/monitor/frame   (~1 FPS)              │ Push / GET /api/alerts?since=
+           │ JSON metadata + audio multipart                │
+           │ POST /api/monitor/observation (~1 Hz)           │ Push / GET /api/alerts?since=
            │ POST /api/monitor/audio   (3s chunk)            │
            │ POST /api/monitor/heartbeat (10s)               │
            ▼                                                 │
@@ -87,6 +88,15 @@ heartbeat가 일정 시간 없으면 위험 점수와 무관하게 OFFLINE으로
    전체 파이프라인이 동작합니다. 먼저 Mock으로 end-to-end를 완성하고 실제 모델을 붙입니다.
 3. **UI와 business logic의 분리.** Figma 디자인이 도착하면 `theme/`과 `core/widgets/`,
    그리고 각 feature의 `presentation/`만 교체하면 됩니다. `domain/`·`data/`는 손대지 않습니다.
+
+### Edge vision의 운영상 이점
+
+모니터링 중에는 preview를 유지한 채 `startImageStream()`으로 들어오는 frame을 표본화하며,
+still photo를 촬영하거나 JPEG를 만들지 않습니다. 따라서 셔터음이 없고 벌통 영상 원본이
+기기 밖으로 나가지 않아 사생활 보호가 좋아집니다. 서버에는 수백 byte 수준의 탐지 metadata만
+전송하므로 기존 수십 KB JPEG/초 방식보다 대역폭과 Railway 처리 비용이 크게 줄고, 네트워크
+왕복 전에 결과를 볼 수 있어 지연도 낮습니다. 추론과 업로드는 각각 single-flight이며 바쁠 때는
+오래된 frame/관측을 버려 장시간 실행해도 backlog가 쌓이지 않습니다.
 
 ---
 
@@ -378,13 +388,14 @@ Bottom sheet에 다음이 표시됩니다.
 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
-| `API_BASE_URL` | `http://10.0.2.2:8000` | 백엔드 주소 (빌드 시에만 지정, 앱 UI에 없음) |
-| `FRAME_INTERVAL_MS` | `1000` | 프레임 전송 주기 (≈1 FPS) |
+| `API_BASE_URL` | Railway production URL | 백엔드 주소 (빌드 시에만 지정, 앱 UI에 없음) |
+| `ANALYSIS_INTERVAL_MS` | `1000` | 연속 stream에서 추론할 표본 간격 (≈1 Hz) |
+| `MODEL_MODE` | `mock` | 온디바이스 detector (`mock` / `tflite`) |
+| `TFLITE_MODEL_ASSET` | `assets/models/hornet.tflite` | 실제 모델 asset 경로 |
+| `MODEL_VERSION` | `hornet-tflite-v1` | observation에 기록할 모델 버전 |
 | `AUDIO_CHUNK_SECONDS` | `3` | 오디오 청크 길이 |
 | `HEARTBEAT_INTERVAL_SECONDS` | `10` | heartbeat 주기 |
 | `ALERT_POLL_INTERVAL_SECONDS` | `10` | 경보 폴링 주기 |
-| `FRAME_MAX_DIMENSION` | `640` | 업로드 프레임 최대 변 길이 |
-| `FRAME_JPEG_QUALITY` | `75` | JPEG 압축 품질 |
 | `DEMO_MODE` | `false` | 서버 없이 화면만 확인 |
 | `ENABLE_FIREBASE` | `true` | Firebase 초기화 시도 |
 
@@ -489,6 +500,7 @@ Push는 **DANGER Alert에 대해서만** 전송됩니다. CAUTION은 앱에 기�
 | GET | `/api/alerts` | 경보 목록 (`hive_id`, `severity`, `since`, `limit`) |
 | GET | `/api/alerts/{id}` | 경보 상세 (판단 근거 포함) |
 | POST | `/api/monitor/frame` | 프레임 업로드 (multipart) |
+| POST | `/api/monitor/observation` | 온디바이스 탐지 metadata 업로드 (JSON, 기본 경로) |
 | POST | `/api/monitor/audio` | 오디오 청크 업로드 (multipart) |
 | POST | `/api/monitor/heartbeat` | 관찰 스마트폰 생존 신호 |
 | POST | `/api/pairings` | 페어링 코드 발급 (관리자) |
@@ -508,7 +520,22 @@ Push는 **DANGER Alert에 대해서만** 전송됩니다. CAUTION은 앱에 기�
 주요 응답 예시:
 
 ```jsonc
-// POST /api/monitor/frame
+// POST /api/monitor/observation 요청 (이미지 없음)
+{
+  "hive_id": "hive-a",
+  "device_id": "phone-abc123",
+  "timestamp": "2026-09-19T12:00:00Z",
+  "hornet_count": 2,
+  "max_confidence": 0.87,
+  "detections": [
+    {"confidence": 0.87, "x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4, "class_name": "hornet"},
+    {"confidence": 0.81, "x": 0.5, "y": 0.3, "width": 0.2, "height": 0.3, "class_name": "hornet"}
+  ],
+  "inference_ms": 38,
+  "model_version": "mock-v1"
+}
+
+// 응답 (`/frame`과 같은 위험도 계약)
 {
   "status": "CAUTION",
   "risk_score": 44,
@@ -517,8 +544,8 @@ Push는 **DANGER Alert에 대해서만** 전송됩니다. CAUTION은 앱에 기�
   "processed_at": "2026-09-19T12:00:00",
   "max_hornet_count": 2,
   "audio_probability": 0.2,
-  "snapshot_url": "/static/snapshots/hive-a_20260919120000_ab12cd34.jpg",
-  "alert_id": "9f2c..."      // 이 프레임이 경보를 유발한 경우에만
+  "snapshot_url": null,
+  "alert_id": "9f2c..."      // 이 관측이 경보를 유발한 경우에만
 }
 
 // POST /api/monitor/audio
@@ -664,7 +691,7 @@ cd services/backend && ./.venv/bin/python -m pytest -v
 cd apps/mobile && flutter analyze && flutter test
 ```
 
-현재 상태: **backend 94 tests · Flutter 84 tests 통과, `flutter analyze` 이슈 0건.**
+현재 상태: **backend 99 tests · Flutter 93 tests 통과, `flutter analyze` 이슈 0건.**
 
 ### Risk Engine 테스트가 검증하는 것
 
@@ -685,8 +712,9 @@ cd apps/mobile && flutter analyze && flutter test
 
 ### Flutter 테스트가 검증하는 것
 
-- **`FrameUploadQueue`** — 단일 업로드 유지, 오래된 프레임 drop, 100프레임이 밀려도 메모리 상한 유지,
-  업로드 실패 후에도 큐가 멈추지 않음. 느린 네트워크에서 메모리가 무한히 늘지 않는다는 보장입니다.
+- **camera image stream** — still photo 촬영 호출 없음, 플랫폼별 안전한 pixel format, 표본 간격 준수.
+- **온디바이스 추론** — 동시에 한 건만 실행하고 busy 중 frame drop. UI isolate 밖에서 전처리·TFLite 추론.
+- **`ObservationUploadQueue`** — 단일 업로드 유지, 오래된 관측 drop, 최신값 우선, 업로드 실패 후에도 모니터링 지속.
 - **JSON 파싱** — 필드 누락·타입 불일치·파싱 불가 timestamp에도 예외가 발생하지 않음.
 - **공용 컴포넌트** — 각 컴포넌트의 표시·콜백 계약. Figma 교체 후에도 같은 테스트로 검증 가능합니다.
 - **화면 이동** — repository를 fixture로 교체한 상태에서 역할 선택 → 대시보드 → 상세까지 전체 흐름.
@@ -706,12 +734,7 @@ python3 scripts/demo_simulation.py --hive-id hive-a
 # 2) 실시간 재생 — 1초에 한 관측씩, 점수가 올라가는 것을 보여줄 때
 python3 scripts/demo_simulation.py --hive-id hive-a --live
 
-# 3) 실제 카메라 경로 — mock detector에 시나리오를 예약
-python3 scripts/demo_simulation.py --hive-id hive-a --script-camera
-#    → 관찰 스마트폰에서 Start Monitoring 을 누르면
-#      실제 카메라 프레임이 예약된 개체 수로 분석되어 DANGER까지 상승
-
-# 4) 관리자 폰 진동만 확인
+# 3) 관리자 폰 진동만 확인
 python3 scripts/demo_simulation.py --hive-id hive-a --create-alert
 ```
 

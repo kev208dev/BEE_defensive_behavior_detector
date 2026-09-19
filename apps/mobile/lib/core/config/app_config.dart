@@ -6,7 +6,7 @@
 /// ```sh
 /// flutter run \
 ///   --dart-define=API_BASE_URL=http://192.168.0.10:8000 \
-///   --dart-define=FRAME_INTERVAL_MS=1000 \
+///   --dart-define=ANALYSIS_INTERVAL_MS=1000 \
 ///   --dart-define=AUDIO_CHUNK_SECONDS=3
 /// ```
 abstract final class AppConfig {
@@ -20,10 +20,26 @@ abstract final class AppConfig {
         'https://beedefensivebehaviordetector-production.up.railway.app',
   );
 
-  /// Milliseconds between analysis frames. ~1 FPS by default, as specified.
-  static const int frameIntervalMs = int.fromEnvironment(
-    'FRAME_INTERVAL_MS',
+  /// Milliseconds between sampled frames from the continuous camera stream.
+  static const int analysisIntervalMs = int.fromEnvironment(
+    'ANALYSIS_INTERVAL_MS',
     defaultValue: 1000,
+  );
+
+  /// On-device detector adapter. `mock` needs no bundled model.
+  static const String modelMode = String.fromEnvironment(
+    'MODEL_MODE',
+    defaultValue: 'mock',
+  );
+
+  static const String tfliteModelAsset = String.fromEnvironment(
+    'TFLITE_MODEL_ASSET',
+    defaultValue: 'assets/models/hornet.tflite',
+  );
+
+  static const String modelVersion = String.fromEnvironment(
+    'MODEL_VERSION',
+    defaultValue: 'hornet-tflite-v1',
   );
 
   /// Length of each recorded audio chunk, in seconds.
@@ -48,18 +64,6 @@ abstract final class AppConfig {
     defaultValue: 10,
   );
 
-  /// Longest edge of an uploaded frame, in pixels, after downscaling.
-  static const int frameMaxDimension = int.fromEnvironment(
-    'FRAME_MAX_DIMENSION',
-    defaultValue: 640,
-  );
-
-  /// JPEG quality (0-100) applied before upload.
-  static const int frameJpegQuality = int.fromEnvironment(
-    'FRAME_JPEG_QUALITY',
-    defaultValue: 75,
-  );
-
   /// Serve every screen from in-memory fixtures instead of the backend.
   ///
   /// Lets the designer and reviewers walk the whole app with no server
@@ -78,7 +82,9 @@ abstract final class AppConfig {
     defaultValue: true,
   );
 
-  static const Duration frameInterval = Duration(milliseconds: frameIntervalMs);
+  static const Duration analysisInterval = Duration(
+    milliseconds: analysisIntervalMs,
+  );
   static const Duration audioChunkDuration = Duration(
     seconds: audioChunkSeconds,
   );
