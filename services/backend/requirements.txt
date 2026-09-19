@@ -1,0 +1,17 @@
+# --- Core backend ---
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+python-multipart>=0.0.9
+sqlmodel>=0.0.22
+pydantic>=2.8,<3.0
+pydantic-settings>=2.4,<3.0
+
+# --- AI / analysis ---
+# numpy + opencv + pillow are used by the mock and YOLO detectors.
+numpy>=1.26,<3.0
+opencv-python-headless>=4.9
+pillow>=10.0
+
+# --- Testing ---
+pytest>=8.0
+httpx>=0.27
