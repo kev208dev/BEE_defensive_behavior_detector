@@ -42,6 +42,16 @@ abstract final class AppConfig {
     defaultValue: 'hornet-tflite-v1',
   );
 
+  /// True when this build carries no real model.
+  ///
+  /// The mock detector reports zero hornets on every frame without looking at
+  /// the image: it exercises the pipeline, it does not detect anything. The
+  /// screens say so rather than showing a bare "mock-v1", because a reading of
+  /// "0 hornets" is otherwise indistinguishable from a working model watching a
+  /// quiet hive. [createOnDeviceHornetDetector] branches on this same getter so
+  /// what is displayed cannot drift from what is running.
+  static bool get usesMockDetector => modelMode.toLowerCase() != 'tflite';
+
   /// Length of each recorded audio chunk, in seconds.
   static const int audioChunkSeconds = int.fromEnvironment(
     'AUDIO_CHUNK_SECONDS',

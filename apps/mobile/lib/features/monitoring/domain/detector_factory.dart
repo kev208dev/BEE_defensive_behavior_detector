@@ -3,7 +3,7 @@ import 'on_device_hornet_detector.dart';
 import 'tflite_hornet_detector.dart';
 
 Future<OnDeviceHornetDetector> createOnDeviceHornetDetector() async {
-  if (AppConfig.modelMode.toLowerCase() != 'tflite') {
+  if (AppConfig.usesMockDetector) {
     return MockOnDeviceHornetDetector();
   }
   return TfliteHornetDetector.fromAsset(

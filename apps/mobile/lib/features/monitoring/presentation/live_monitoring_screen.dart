@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme/tokens.dart';
+import '../../../core/config/app_config.dart';
 import '../../../core/providers.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_button.dart';
@@ -346,7 +347,13 @@ class _PipelineInfo extends StatelessWidget {
           const SizedBox(height: AppSpacing.sm),
           _InfoRow(
             label: '탐지 모델',
-            value: state.modelVersion.isEmpty ? '초기화 중' : state.modelVersion,
+            value: state.modelVersion.isEmpty
+                ? '초기화 중'
+                // Without this, "0마리" from the mock reads exactly like a real
+                // model watching a quiet hive.
+                : AppConfig.usesMockDetector
+                ? '${state.modelVersion} · 실제 탐지 안 함'
+                : state.modelVersion,
           ),
           const SizedBox(height: AppSpacing.sm),
           _InfoRow(

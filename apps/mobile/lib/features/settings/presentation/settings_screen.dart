@@ -93,7 +93,12 @@ class SettingsScreen extends ConsumerWidget {
             label: '경보 폴링 주기',
             value: '${AppConfig.alertPollIntervalSeconds}초',
           ),
-          const _InfoTile(label: '탐지 모델 모드', value: AppConfig.modelMode),
+          _InfoTile(
+            label: '탐지 모델 모드',
+            value: AppConfig.usesMockDetector
+                ? '${AppConfig.modelMode} (실제 탐지 안 함)'
+                : AppConfig.modelMode,
+          ),
           _InfoTile(
             label: '경보 감시',
             value: watcher.watching

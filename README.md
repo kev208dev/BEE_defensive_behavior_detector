@@ -417,6 +417,11 @@ cd services/backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
   demo 시나리오가 주입되면 그 값을 순서대로 반환합니다.
 - `AUDIO_MODEL_MODE=mock` — `MockAudioClassifier`. 0.05~0.35 대역의 환경음 수준 확률을 반환합니다.
 - `NOTIFICATION_MODE=console` — `ConsoleNotificationSender`. 실제 push 대신 콘솔에 출력합니다.
+- `MODEL_MODE=mock` (앱, 기본값) — `MockOnDeviceHornetDetector`. **이미지를 보지 않고 모든
+  프레임에 0마리를 반환합니다.** camera stream → detector → metadata → Risk Engine 경로를
+  검증할 뿐, 말벌을 탐지하지 않습니다. 이 상태의 "0마리"는 **탐지 결과가 아니라 모델이 없다는
+  뜻**이므로, 앱 화면에도 `실제 탐지 안 함` 이라고 함께 표시됩니다.
+  모델 계약과 실제 모델 연결 방법은 [`apps/mobile/assets/models/README.md`](apps/mobile/assets/models/README.md) 참고.
 
 `DETECTOR_MODE=yolo` 로 설정했는데 weight 파일이나 `ultralytics` 가 없으면,
 **서버가 죽지 않고** 경고 로그를 남긴 뒤 mock으로 자동 fallback합니다.
