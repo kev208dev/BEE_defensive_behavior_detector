@@ -36,9 +36,9 @@ env:
   # Delete the `flutter-version:` input below to always take the latest stable.
   FLUTTER_VERSION: 3.47.5
   JAVA_VERSION: '17'
-  # permission_handler_android compiles against API 37, so the app does too.
-  # Keep in sync with compileSdk in apps/mobile/android/app/build.gradle.kts.
-  ANDROID_COMPILE_SDK: '37'
+  # Must match compileSdk in apps/mobile/android/app/build.gradle.kts, and
+  # must be a level published in the stable SDK channel.
+  ANDROID_COMPILE_SDK: '36'
 
 jobs:
   build:
@@ -95,7 +95,12 @@ jobs:
           fi
           echo "Using $SDKMANAGER"
           yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-          "$SDKMANAGER" --install "platforms;android-${ANDROID_COMPILE_SDK}"
+          if ! "$SDKMANAGER" --install "platforms;android-${ANDROID_COMPILE_SDK}"; then
+            echo "::error::platforms;android-${ANDROID_COMPILE_SDK} is not available in the SDK repository."
+            echo "Platforms that are available:"
+            "$SDKMANAGER" --list 2>/dev/null | grep -E '^\s+platforms;android-[0-9]+' | sort -u || true
+            exit 1
+          fi
           echo "Installed platforms:"
           ls "$ANDROID_HOME/platforms"
 

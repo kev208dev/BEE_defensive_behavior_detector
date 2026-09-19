@@ -13,11 +13,14 @@ plugins {
 android {
     namespace = "kr.ainuri.beehive.beehive_guard"
 
-    // Pinned rather than taking flutter.compileSdkVersion (currently 36):
-    // permission_handler_android compiles against API 37, and AGP fails the
-    // build when a dependency targets a newer API than the app. Raise this
-    // when a plugin needs more; it is safe to be ahead of targetSdk.
-    compileSdk = 37
+    // Pinned rather than taking flutter.compileSdkVersion so that CI installs
+    // exactly this platform. It must be >= the highest compileSdk any plugin
+    // asks for; today that is 36 (record_android, flutter_local_notifications).
+    // Keep in sync with ANDROID_COMPILE_SDK in
+    // .github/workflows/android-build.yml, and only raise it to a level that
+    // is actually published in the stable SDK channel — API 37 is not, which
+    // is why permission_handler is pinned to 12.x in pubspec.yaml.
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

@@ -25,7 +25,13 @@ dependencies:
   camera: ^0.12.1
   record: ^7.1.1
   image: ^4.10.1
-  permission_handler: ^13.0.2
+  # Pinned to 12.x on purpose: permission_handler 13.x pulls
+  # permission_handler_android 14.x, which compiles against Android API 37 —
+  # a level not published in the stable SDK channel, so neither CI nor a
+  # normal developer machine can build it. 12.0.3 resolves to
+  # permission_handler_android 13.0.1 (compileSdk 35) and exposes the same
+  # Dart API this app uses. Raise it once API 37 ships as stable.
+  permission_handler: ^12.0.3
 
   # --- Push notifications ---
   firebase_core: ^4.15.0
