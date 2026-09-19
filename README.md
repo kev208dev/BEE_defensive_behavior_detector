@@ -231,6 +231,25 @@ flutter run -d <device-id> \
 `usesCleartextTraffic="true"` 가 설정되어 있어 개발용 평문 HTTP가 동작합니다.
 **실제 배포 시에는 반드시 제거하고 HTTPS를 사용해야 합니다.**
 
+#### GitHub Actions로 APK 받기
+
+로컬에 Android SDK가 없어도 됩니다. **Actions → Android debug APK → Run workflow**
+를 누르거나, 작업 브랜치에 push하면 자동으로 실행됩니다.
+
+워크플로는 `flutter pub get` → codegen → `flutter analyze` → `flutter test` →
+`flutter build apk --debug` 순서로 진행하고, 결과물을
+`beehive-guard-debug-apk` artifact로 업로드합니다. 내려받아 압축을 풀고
+`adb install app-debug.apk` 또는 파일 전송으로 설치하면 됩니다.
+
+**Firebase 설정 파일 없이 빌드됩니다.** `com.google.gms.google-services` Gradle
+플러그인을 적용하지 않았기 때문에 `google-services.json` 이 빌드 입력이 아닙니다.
+해당 파일이 없는 기기에서는 Firebase 초기화가 실패하고 `PushService` 가 이를
+잡아내며, 관리자 폰은 폴링 fallback으로 경보를 받습니다 (§13 참고).
+
+> `compileSdk` 는 `permission_handler_android` 가 API 37을 요구하기 때문에
+> 37로 고정되어 있습니다 (`android/app/build.gradle.kts`). 플러그인이 더 높은
+> API를 요구하면 이 값과 워크플로의 `ANDROID_COMPILE_SDK` 를 함께 올려주세요.
+
 ### iOS
 
 ```bash

@@ -2,11 +2,22 @@ plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+
+    // NOTE: com.google.gms.google-services is deliberately NOT applied.
+    // Applying it would make google-services.json a hard build requirement,
+    // and this app is designed to build and run without any Firebase setup —
+    // the manager phone falls back to polling for alerts. Add the plugin only
+    // once a real google-services.json is committed or supplied by CI.
 }
 
 android {
     namespace = "kr.ainuri.beehive.beehive_guard"
-    compileSdk = flutter.compileSdkVersion
+
+    // Pinned rather than taking flutter.compileSdkVersion (currently 36):
+    // permission_handler_android compiles against API 37, and AGP fails the
+    // build when a dependency targets a newer API than the app. Raise this
+    // when a plugin needs more; it is safe to be ahead of targetSdk.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

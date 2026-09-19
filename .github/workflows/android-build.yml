@@ -1,0 +1,138 @@
+# Builds a debug APK so the MVP can be installed on a real Android phone.
+#
+# This workflow deliberately requires NO Firebase configuration.
+# `com.google.gms.google-services` is not applied in
+# apps/mobile/android/app/build.gradle.kts, so google-services.json is never a
+# build input. On a device without it, Firebase simply fails to initialise,
+# PushService catches that, and the manager phone falls back to polling the
+# backend for alerts — the documented, supported configuration.
+name: Android debug APK
+
+on:
+  # Lets you press "Run workflow" from the Actions tab.
+  workflow_dispatch:
+  push:
+    branches:
+      - claude/beehive-wasp-detection-mvp-3uzbeb
+      - main
+    # Changes that cannot affect the APK do not need a 20-minute build.
+    paths-ignore:
+      - 'docs/**'
+      - 'services/**'
+      - 'scripts/**'
+      - '**/*.md'
+
+# A newer push supersedes an in-flight run on the same branch.
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Pinned to the version the project was developed and verified against, so a
+  # surprise Flutter release cannot break the build the day before a demo.
+  # Delete the `flutter-version:` input below to always take the latest stable.
+  FLUTTER_VERSION: 3.47.5
+  JAVA_VERSION: '17'
+  # permission_handler_android compiles against API 37, so the app does too.
+  # Keep in sync with compileSdk in apps/mobile/android/app/build.gradle.kts.
+  ANDROID_COMPILE_SDK: '37'
+
+jobs:
+  build:
+    name: Analyze, test and build debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    defaults:
+      run:
+        working-directory: apps/mobile
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
+          cache-dependency-path: |
+            apps/mobile/android/*.gradle*
+            apps/mobile/android/**/gradle-wrapper.properties
+
+      - name: Set up Flutter (stable)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          # Caches the Flutter SDK and the pub package cache.
+          cache: true
+
+      - name: Report toolchain versions
+        run: |
+          flutter --version
+          java -version
+          echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
+
+      # The runner image does not always ship the newest platform, so install
+      # it explicitly rather than relying on AGP's auto-download.
+      - name: Ensure Android SDK platform ${{ env.ANDROID_COMPILE_SDK }}
+        run: |
+          set -euo pipefail
+          # Prefer the explicit path, fall back to whatever is on PATH, so a
+          # change in the runner image layout does not silently break this.
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(command -v sdkmanager || true)"
+          fi
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager not found; ANDROID_HOME=${ANDROID_HOME:-unset}"
+            exit 1
+          fi
+          echo "Using $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" --install "platforms;android-${ANDROID_COMPILE_SDK}"
+          echo "Installed platforms:"
+          ls "$ANDROID_HOME/platforms"
+
+      - name: Install Dart dependencies
+        run: flutter pub get
+
+      - name: Generate code (freezed / json_serializable)
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - name: Report APK size
+        run: ls -lh build/app/outputs/flutter-apk/app-debug.apk
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: beehive-guard-debug-apk
+          path: apps/mobile/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # Gradle failures are hard to diagnose from a truncated console log.
+      - name: Upload Gradle reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-reports
+          path: |
+            apps/mobile/build/**/reports/**
+            apps/mobile/android/**/build/reports/**
+          if-no-files-found: ignore
+          retention-days: 7
