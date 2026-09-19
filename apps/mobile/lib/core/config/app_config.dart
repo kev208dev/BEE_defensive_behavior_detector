@@ -12,11 +12,12 @@
 abstract final class AppConfig {
   /// Base URL of the FastAPI backend.
   ///
-  /// The default is the Android emulator's alias for the host machine's
-  /// loopback interface; a physical phone needs the host's LAN address.
+  /// Release builds use Railway automatically. Developers can still override
+  /// this at build time for a local backend.
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://10.0.2.2:8000',
+    defaultValue:
+        'https://beedefensivebehaviordetector-production.up.railway.app',
   );
 
   /// Milliseconds between analysis frames. ~1 FPS by default, as specified.
@@ -77,18 +78,24 @@ abstract final class AppConfig {
     defaultValue: true,
   );
 
-  static const Duration frameInterval =
-      Duration(milliseconds: frameIntervalMs);
-  static const Duration audioChunkDuration =
-      Duration(seconds: audioChunkSeconds);
-  static const Duration heartbeatInterval =
-      Duration(seconds: heartbeatIntervalSeconds);
-  static const Duration alertPollInterval =
-      Duration(seconds: alertPollIntervalSeconds);
+  static const Duration frameInterval = Duration(milliseconds: frameIntervalMs);
+  static const Duration audioChunkDuration = Duration(
+    seconds: audioChunkSeconds,
+  );
+  static const Duration heartbeatInterval = Duration(
+    seconds: heartbeatIntervalSeconds,
+  );
+  static const Duration alertPollInterval = Duration(
+    seconds: alertPollIntervalSeconds,
+  );
 
-  /// Network timeouts. A monitoring phone on a rural LTE connection must give
-  /// up on a slow frame rather than stall the capture loop behind it.
-  static const Duration connectTimeout = Duration(seconds: 8);
-  static const Duration receiveTimeout = Duration(seconds: 12);
-  static const Duration sendTimeout = Duration(seconds: 12);
+  /// Control-plane requests must fail quickly so a dashboard can show retry.
+  static const Duration connectTimeout = Duration(seconds: 3);
+  static const Duration receiveTimeout = Duration(seconds: 5);
+  static const Duration sendTimeout = Duration(seconds: 5);
+
+  /// Media uploads get a larger budget for rural LTE connections.
+  static const Duration mediaConnectTimeout = Duration(seconds: 8);
+  static const Duration mediaReceiveTimeout = Duration(seconds: 12);
+  static const Duration mediaSendTimeout = Duration(seconds: 12);
 }

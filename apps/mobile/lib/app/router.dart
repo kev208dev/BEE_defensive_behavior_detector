@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/models/hive_status.dart';
 import '../features/alerts/presentation/alert_detail_screen.dart';
 import '../features/alerts/presentation/alert_list_screen.dart';
 import '../features/dashboard/presentation/dashboard_screen.dart';
@@ -10,6 +11,7 @@ import '../features/hives/presentation/hive_list_screen.dart';
 import '../features/mode_selection/presentation/mode_selection_screen.dart';
 import '../features/monitoring/presentation/live_monitoring_screen.dart';
 import '../features/monitoring/presentation/monitoring_setup_screen.dart';
+import '../features/mode_selection/domain/mode_controller.dart';
 import '../features/pairing/presentation/pair_device_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
 
@@ -32,8 +34,9 @@ abstract final class Routes {
 ///
 /// Needed so a push notification arriving while the app is in the background
 /// can navigate without a [BuildContext].
-final GlobalKey<NavigatorState> rootNavigatorKey =
-    GlobalKey<NavigatorState>(debugLabel: 'root');
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>(
+  debugLabel: 'root',
+);
 
 final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
   final GoRouter router = GoRouter(
@@ -47,6 +50,12 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
       ),
       GoRoute(
         path: Routes.pair,
+        redirect: (BuildContext context, GoRouterState state) =>
+            switch (ref.read(appModeProvider)) {
+              AppMode.monitoring => null,
+              AppMode.manager => Routes.dashboard,
+              null => Routes.mode,
+            },
         builder: (BuildContext context, GoRouterState state) =>
             const PairDeviceScreen(),
       ),

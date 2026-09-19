@@ -1,0 +1,6 @@
+[
+  { "id": "hive-a", "name": "벌통 A", "location": "1구역 동편" },
+  { "id": "hive-b", "name": "벌통 B", "location": "1구역 서편" },
+  { "id": "hive-c", "name": "벌통 C", "location": "2구역 남편" },
+  { "id": "hive-d", "name": "벌통 D", "location": "2구역 북편" }
+]

@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from sqlalchemy.engine import Engine
-from sqlmodel import Session, SQLModel, create_engine, select
+from sqlmodel import Session, SQLModel, create_engine
 
 from app.config import Settings, get_settings
 from app.models import Hive
@@ -57,18 +57,16 @@ def init_db(settings: Settings | None = None) -> None:
 
 
 def seed_hives(settings: Settings | None = None, *, force: bool = False) -> int:
-    """Insert the sample hives when none exist yet.
+    """Insert any sample hives that are not already present.
 
-    Returns the number of hives created.
+    Existing rows are never overwritten. This lets a persistent deployment
+    pick up newly packaged demo hives without changing beekeeper-edited data.
+    ``force`` is retained for compatibility with existing callers.
     """
     settings = settings or get_settings()
     engine = get_engine(settings)
 
     with Session(engine) as session:
-        existing = session.exec(select(Hive)).first()
-        if existing is not None and not force:
-            return 0
-
         hives = _load_seed_definitions(Path(settings.seed_file))
         created = 0
         for definition in hives:

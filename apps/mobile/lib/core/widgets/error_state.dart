@@ -9,11 +9,7 @@ import 'app_button.dart';
 /// Takes a [Failure] so the copy and the retry affordance follow from *why*
 /// it failed — a 404 has no useful retry, a timeout does.
 class ErrorState extends StatelessWidget {
-  const ErrorState({
-    required this.failure,
-    this.onRetry,
-    super.key,
-  });
+  const ErrorState({required this.failure, this.onRetry, super.key});
 
   final Failure failure;
   final VoidCallback? onRetry;
@@ -43,7 +39,7 @@ class ErrorState extends StatelessWidget {
             if (failure.isConnectivityProblem) ...<Widget>[
               const SizedBox(height: AppSpacing.sm),
               const Text(
-                '설정 화면에서 서버 주소를 확인할 수 있습니다.',
+                '네트워크 연결을 확인한 뒤 다시 시도해주세요.',
                 style: AppTypography.bodyMedium,
                 textAlign: TextAlign.center,
               ),

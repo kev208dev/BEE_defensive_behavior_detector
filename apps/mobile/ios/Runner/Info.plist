@@ -11,13 +11,11 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>분석용 스냅샷을 저장할 때 사용합니다.</string>
 
-	<!-- Development only: the backend runs over plain HTTP on the local
-	     network. Remove this before any real deployment. -->
+	<!-- Production traffic uses Railway HTTPS. Local debug builds may still
+	     reach Bonjour/unqualified hosts without allowing arbitrary HTTP. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
-		<true/>
-		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
 

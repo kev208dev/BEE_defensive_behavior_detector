@@ -21,7 +21,6 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
-REPO_ROOT = BACKEND_ROOT.parent.parent
 
 
 class DetectorMode(str, Enum):
@@ -64,7 +63,7 @@ class Settings(BaseSettings):
     storage_dir: Path = BACKEND_ROOT / "storage"
     snapshot_dir: Path = BACKEND_ROOT / "storage" / "snapshots"
     seed_on_startup: bool = True
-    seed_file: Path = REPO_ROOT / "data" / "samples" / "seed_hives.json"
+    seed_file: Path = BACKEND_ROOT / "data" / "seed_hives.json"
 
     # Public base URL used when building thumbnail/clip URLs returned to the
     # mobile app.  Override in production, e.g. https://api.example.com

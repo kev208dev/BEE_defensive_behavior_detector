@@ -55,8 +55,13 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
           ),
-          const SectionHeader(title: '연결된 벌통'),
-          _PairingCard(paired: paired),
+          SectionHeader(
+            title: mode == AppMode.monitoring ? '연결된 벌통' : '모니터링 기기',
+          ),
+          if (mode == AppMode.monitoring)
+            _PairingCard(paired: paired)
+          else
+            const _ManagerPairingInfo(),
           const SectionHeader(title: '서버 연결'),
           _Card(
             child: Row(
@@ -64,7 +69,8 @@ class SettingsScreen extends ConsumerWidget {
                 ConnectionBadge(state: connection),
                 const Spacer(),
                 TextButton(
-                  onPressed: () => ref.read(connectionProvider.notifier).check(),
+                  onPressed: () =>
+                      ref.read(connectionProvider.notifier).check(),
                   child: const Text('다시 확인'),
                 ),
               ],
@@ -89,7 +95,8 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const _InfoTile(
             label: '프레임 최대 해상도',
-            value: '${AppConfig.frameMaxDimension}px / '
+            value:
+                '${AppConfig.frameMaxDimension}px / '
                 'JPEG ${AppConfig.frameJpegQuality}',
           ),
           _InfoTile(
@@ -135,6 +142,29 @@ class SettingsScreen extends ConsumerWidget {
   }
 }
 
+class _ManagerPairingInfo extends StatelessWidget {
+  const _ManagerPairingInfo();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _Card(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Icon(Icons.info_outline, color: AppColors.primary),
+          SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Text(
+              '모니터링 기기는 벌통 상세에서 연결할 수 있습니다.',
+              style: AppTypography.bodyLarge,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Shows the paired hive, or an invitation to pair when there is none.
 class _PairingCard extends ConsumerWidget {
   const _PairingCard({required this.paired});
@@ -174,17 +204,10 @@ class _PairingCard extends ConsumerWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              const Icon(
-                Icons.link,
-                size: 18,
-                color: AppColors.statusNormal,
-              ),
+              const Icon(Icons.link, size: 18, color: AppColors.statusNormal),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
-                child: Text(
-                  current.hiveName,
-                  style: AppTypography.titleMedium,
-                ),
+                child: Text(current.hiveName, style: AppTypography.titleMedium),
               ),
             ],
           ),
@@ -209,7 +232,8 @@ class _PairingCard extends ConsumerWidget {
   }
 
   Future<void> _confirmUnpair(BuildContext context, WidgetRef ref) async {
-    final bool confirmed = await showDialog<bool>(
+    final bool confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (BuildContext context) => AlertDialog(
             backgroundColor: AppColors.surface,
@@ -240,9 +264,8 @@ class _PairingCard extends ConsumerWidget {
     await ref.read(pairedHiveProvider.notifier).unpair();
     if (!context.mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('연결이 해제되었습니다.')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('연결이 해제되었습니다.')));
   }
 }
 

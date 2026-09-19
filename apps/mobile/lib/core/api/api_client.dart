@@ -18,9 +18,10 @@ import 'endpoints.dart';
 /// every transport error into a [Failure] and every response body into a
 /// domain model, so repositories and controllers deal purely in domain terms.
 class ApiClient {
-  ApiClient(this._dio);
+  ApiClient(this._dio, {Dio? mediaDio}) : _mediaDio = mediaDio ?? _dio;
 
   final Dio _dio;
+  final Dio _mediaDio;
 
   String get baseUrl => _dio.options.baseUrl;
 
@@ -45,8 +46,7 @@ class ApiClient {
   // ------------------------------------------------------------------
 
   Future<List<Hive>> fetchHives() async {
-    final List<Map<String, dynamic>> rows =
-        await _getList(Endpoints.hives);
+    final List<Map<String, dynamic>> rows = await _getList(Endpoints.hives);
     return rows.map(Hive.fromApi).toList(growable: false);
   }
 
@@ -61,8 +61,9 @@ class ApiClient {
   }
 
   Future<HiveStatusSnapshot> fetchHiveStatus(String hiveId) async {
-    final Map<String, dynamic> json =
-        await _getObject(Endpoints.hiveStatus(hiveId));
+    final Map<String, dynamic> json = await _getObject(
+      Endpoints.hiveStatus(hiveId),
+    );
     return HiveStatusSnapshot.fromApi(json);
   }
 
@@ -87,8 +88,9 @@ class ApiClient {
   }
 
   Future<AlertDetail> fetchAlertDetail(String alertId) async {
-    final Map<String, dynamic> json =
-        await _getObject(Endpoints.alert(alertId));
+    final Map<String, dynamic> json = await _getObject(
+      Endpoints.alert(alertId),
+    );
     return AlertDetail.fromApi(json);
   }
 
@@ -108,16 +110,14 @@ class ApiClient {
       'hive_id': hiveId,
       'device_id': deviceId,
       'timestamp': timestamp.toUtc().toIso8601String(),
-      'image': MultipartFile.fromBytes(
-        jpegBytes,
-        filename: 'frame.jpg',
-      ),
+      'image': MultipartFile.fromBytes(jpegBytes, filename: 'frame.jpg'),
     });
 
     final Map<String, dynamic> json = await _postObject(
       Endpoints.frame,
       data: form,
       cancelToken: cancelToken,
+      client: _mediaDio,
     );
     return FrameAnalysis.fromApi(json);
   }
@@ -142,6 +142,7 @@ class ApiClient {
       Endpoints.audio,
       data: form,
       cancelToken: cancelToken,
+      client: _mediaDio,
     );
     return AudioAnalysis.fromApi(json);
   }
@@ -169,8 +170,9 @@ class ApiClient {
 
   /// Current state of a pairing, polled while the manager's sheet is open.
   Future<PairingSession> fetchPairing(String pairingId) async {
-    final Map<String, dynamic> json =
-        await _getObject(Endpoints.pairing(pairingId));
+    final Map<String, dynamic> json = await _getObject(
+      Endpoints.pairing(pairingId),
+    );
     return PairingSession.fromApi(json);
   }
 
@@ -217,15 +219,13 @@ class ApiClient {
     }
 
     // No structured body: fall back to the status code.
-    return PairingException(
-      switch (error.response?.statusCode) {
-        404 => PairingFailure.invalidCode,
-        409 => PairingFailure.alreadyClaimed,
-        410 => PairingFailure.expired,
-        429 => PairingFailure.rateLimited,
-        _ => PairingFailure.unknown,
-      },
-    );
+    return PairingException(switch (error.response?.statusCode) {
+      404 => PairingFailure.invalidCode,
+      409 => PairingFailure.alreadyClaimed,
+      410 => PairingFailure.expired,
+      429 => PairingFailure.rateLimited,
+      _ => PairingFailure.unknown,
+    });
   }
 
   // ------------------------------------------------------------------
@@ -278,9 +278,10 @@ class ApiClient {
     String path, {
     required Object data,
     CancelToken? cancelToken,
+    Dio? client,
   }) async {
     try {
-      final Response<dynamic> response = await _dio.post<dynamic>(
+      final Response<dynamic> response = await (client ?? _dio).post<dynamic>(
         path,
         data: data,
         cancelToken: cancelToken,

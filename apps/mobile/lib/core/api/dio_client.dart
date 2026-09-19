@@ -9,12 +9,35 @@ import '../config/app_config.dart';
 /// behind it.
 abstract final class DioClient {
   static Dio create({String? baseUrl}) {
+    return _create(
+      baseUrl: baseUrl,
+      connectTimeout: AppConfig.connectTimeout,
+      receiveTimeout: AppConfig.receiveTimeout,
+      sendTimeout: AppConfig.sendTimeout,
+    );
+  }
+
+  static Dio createMedia({String? baseUrl}) {
+    return _create(
+      baseUrl: baseUrl,
+      connectTimeout: AppConfig.mediaConnectTimeout,
+      receiveTimeout: AppConfig.mediaReceiveTimeout,
+      sendTimeout: AppConfig.mediaSendTimeout,
+    );
+  }
+
+  static Dio _create({
+    required String? baseUrl,
+    required Duration connectTimeout,
+    required Duration receiveTimeout,
+    required Duration sendTimeout,
+  }) {
     final Dio dio = Dio(
       BaseOptions(
         baseUrl: baseUrl ?? AppConfig.apiBaseUrl,
-        connectTimeout: AppConfig.connectTimeout,
-        receiveTimeout: AppConfig.receiveTimeout,
-        sendTimeout: AppConfig.sendTimeout,
+        connectTimeout: connectTimeout,
+        receiveTimeout: receiveTimeout,
+        sendTimeout: sendTimeout,
         responseType: ResponseType.json,
         // Non-2xx is surfaced as a DioException and mapped to a Failure,
         // rather than being silently treated as a successful response.

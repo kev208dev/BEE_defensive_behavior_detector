@@ -26,10 +26,10 @@ final Provider<ModeStorage> modeStorageProvider = Provider<ModeStorage>(
 /// Overridden in `main()` with the instance `ModeStorage` was built from.
 final Provider<SharedPreferences> sharedPreferencesProvider =
     Provider<SharedPreferences>(
-  (Ref ref) => throw UnimplementedError(
-    'sharedPreferencesProvider must be overridden in main()',
-  ),
-);
+      (Ref ref) => throw UnimplementedError(
+        'sharedPreferencesProvider must be overridden in main()',
+      ),
+    );
 
 /// The backend base URL.
 ///
@@ -38,8 +38,9 @@ final Provider<SharedPreferences> sharedPreferencesProvider =
 /// user-facing setting for this — a release build ships one fixed URL, and a
 /// developer overrides it at build time with
 /// `--dart-define=API_BASE_URL=...`.
-final Provider<String> baseUrlProvider =
-    Provider<String>((Ref ref) => AppConfig.apiBaseUrl);
+final Provider<String> baseUrlProvider = Provider<String>(
+  (Ref ref) => AppConfig.apiBaseUrl,
+);
 
 final Provider<Dio> dioProvider = Provider<Dio>((Ref ref) {
   final Dio dio = DioClient.create(baseUrl: ref.watch(baseUrlProvider));
@@ -47,8 +48,15 @@ final Provider<Dio> dioProvider = Provider<Dio>((Ref ref) {
   return dio;
 });
 
+final Provider<Dio> mediaDioProvider = Provider<Dio>((Ref ref) {
+  final Dio dio = DioClient.createMedia(baseUrl: ref.watch(baseUrlProvider));
+  ref.onDispose(dio.close);
+  return dio;
+});
+
 final Provider<ApiClient> apiClientProvider = Provider<ApiClient>(
-  (Ref ref) => ApiClient(ref.watch(dioProvider)),
+  (Ref ref) =>
+      ApiClient(ref.watch(dioProvider), mediaDio: ref.watch(mediaDioProvider)),
 );
 
 /// This phone's stable identifier, used in every upload and heartbeat.
@@ -62,31 +70,31 @@ final Provider<String> deviceIdProvider = Provider<String>(
 
 final Provider<HiveRepository> hiveRepositoryProvider =
     Provider<HiveRepository>((Ref ref) {
-  if (AppConfig.demoMode) return const DemoHiveRepository();
-  return ApiHiveRepository(ref.watch(apiClientProvider));
-});
+      if (AppConfig.demoMode) return const DemoHiveRepository();
+      return ApiHiveRepository(ref.watch(apiClientProvider));
+    });
 
 final Provider<AlertRepository> alertRepositoryProvider =
     Provider<AlertRepository>((Ref ref) {
-  if (AppConfig.demoMode) return const DemoAlertRepository();
-  return ApiAlertRepository(ref.watch(apiClientProvider));
-});
+      if (AppConfig.demoMode) return const DemoAlertRepository();
+      return ApiAlertRepository(ref.watch(apiClientProvider));
+    });
 
 final Provider<PairingRepository> pairingRepositoryProvider =
     Provider<PairingRepository>((Ref ref) {
-  if (AppConfig.demoMode) return DemoPairingRepository();
-  return ApiPairingRepository(ref.watch(apiClientProvider));
-});
+      if (AppConfig.demoMode) return DemoPairingRepository();
+      return ApiPairingRepository(ref.watch(apiClientProvider));
+    });
 
 /// Whether the backend is currently reachable.
 ///
 /// Every screen that shows a connection badge watches this rather than
 /// making its own health call.
 final NotifierProvider<ConnectionNotifier, BackendConnectionState>
-    connectionProvider =
+connectionProvider =
     NotifierProvider<ConnectionNotifier, BackendConnectionState>(
-  ConnectionNotifier.new,
-);
+      ConnectionNotifier.new,
+    );
 
 /// Backend reachability as far as the UI is concerned.
 enum BackendConnectionState {
@@ -111,15 +119,18 @@ class ConnectionNotifier extends Notifier<BackendConnectionState> {
       return true;
     }
     final bool reachable = await ref.read(apiClientProvider).ping();
-    state = reachable ? BackendConnectionState.connected : BackendConnectionState.disconnected;
+    state = reachable
+        ? BackendConnectionState.connected
+        : BackendConnectionState.disconnected;
     return reachable;
   }
 
   /// Records the outcome of a request that already happened, so the badge
   /// stays accurate without extra health polling during monitoring.
   void report({required bool success}) {
-    final BackendConnectionState next =
-        success ? BackendConnectionState.connected : BackendConnectionState.disconnected;
+    final BackendConnectionState next = success
+        ? BackendConnectionState.connected
+        : BackendConnectionState.disconnected;
     if (state != next) state = next;
   }
 }
