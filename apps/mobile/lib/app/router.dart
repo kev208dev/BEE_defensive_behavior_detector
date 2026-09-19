@@ -9,6 +9,7 @@ import '../features/dashboard/presentation/dashboard_screen.dart';
 import '../features/hives/presentation/hive_detail_screen.dart';
 import '../features/hives/presentation/hive_list_screen.dart';
 import '../features/mode_selection/presentation/mode_selection_screen.dart';
+import '../features/monitoring/presentation/detection_area_screen.dart';
 import '../features/monitoring/presentation/live_monitoring_screen.dart';
 import '../features/monitoring/presentation/monitoring_setup_screen.dart';
 import '../features/mode_selection/domain/mode_controller.dart';
@@ -21,6 +22,7 @@ abstract final class Routes {
   static const String pair = '/pair';
   static const String monitorSetup = '/monitor/setup';
   static const String monitorLive = '/monitor/live';
+  static const String monitorArea = '/monitor/area';
   static const String dashboard = '/dashboard';
   static const String hives = '/hives';
   static const String alerts = '/alerts';
@@ -68,6 +70,11 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
         path: Routes.monitorLive,
         builder: (BuildContext context, GoRouterState state) =>
             const LiveMonitoringScreen(),
+      ),
+      GoRoute(
+        path: Routes.monitorArea,
+        builder: (BuildContext context, GoRouterState state) =>
+            const DetectionAreaScreen(),
       ),
       GoRoute(
         path: Routes.dashboard,

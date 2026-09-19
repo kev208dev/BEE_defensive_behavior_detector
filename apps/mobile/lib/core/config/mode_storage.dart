@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../features/monitoring/domain/detection_roi.dart';
 
 import '../models/hive_status.dart';
 import '../models/pairing.dart';
@@ -20,6 +24,7 @@ class ModeStorage {
   static const String _pairedHiveIdKey = 'paired_hive_id';
   static const String _pairedHiveNameKey = 'paired_hive_name';
   static const String _pairingIdKey = 'paired_pairing_id';
+  static const String _detectionRoiKey = 'detection_roi';
 
   final SharedPreferences _prefs;
 
@@ -32,6 +37,31 @@ class ModeStorage {
       _prefs.setString(_modeKey, mode.storageValue);
 
   Future<void> clearMode() => _prefs.remove(_modeKey);
+
+  /// The detection region this phone was last set to watch.
+  ///
+  /// Persisted so a phone propped in front of a hive overnight comes back up
+  /// still cropping to the entrance, rather than silently reverting to the
+  /// whole frame — where a hornet is too small for the model to see at all.
+  DetectionRoi readDetectionRoi() {
+    final String? stored = _prefs.getString(_detectionRoiKey);
+    if (stored == null || stored.isEmpty) return DetectionRoi.full;
+    try {
+      final Object? decoded = jsonDecode(stored);
+      if (decoded is! Map<String, dynamic>) return DetectionRoi.full;
+      return DetectionRoi.fromJson(decoded) ?? DetectionRoi.full;
+    } on FormatException {
+      // Corrupt preferences must not stop monitoring from starting.
+      return DetectionRoi.full;
+    }
+  }
+
+  Future<void> writeDetectionRoi(DetectionRoi roi) => _prefs.setString(
+    _detectionRoiKey,
+    jsonEncode(roi.toJson()),
+  );
+
+  Future<void> clearDetectionRoi() => _prefs.remove(_detectionRoiKey);
 
   /// A stable per-install identifier, generated on first use.
   ///

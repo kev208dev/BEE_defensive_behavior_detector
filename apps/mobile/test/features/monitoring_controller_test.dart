@@ -43,7 +43,7 @@ void main() {
           ),
           cameraServiceFactoryProvider.overrideWithValue(() => camera),
           onDeviceDetectorFactoryProvider.overrideWithValue(
-            () async => throw StateError('bad model'),
+            (_) async => throw StateError('bad model'),
           ),
         ],
       );
@@ -91,7 +91,7 @@ void main() {
           ),
           cameraServiceFactoryProvider.overrideWithValue(() => camera),
           onDeviceDetectorFactoryProvider.overrideWithValue(
-            () async => MockOnDeviceHornetDetector(result: _detection),
+            (_) async => MockOnDeviceHornetDetector(result: _detection),
           ),
           apiClientProvider.overrideWithValue(ApiClient(dio)),
         ],
@@ -247,7 +247,7 @@ class _Harness {
           const _GrantedCameraPermissionService(),
         ),
         cameraServiceFactoryProvider.overrideWithValue(() => camera),
-        onDeviceDetectorFactoryProvider.overrideWithValue(() async => detector),
+        onDeviceDetectorFactoryProvider.overrideWithValue((_) async => detector),
         apiClientProvider.overrideWithValue(ApiClient(dio)),
       ],
     );

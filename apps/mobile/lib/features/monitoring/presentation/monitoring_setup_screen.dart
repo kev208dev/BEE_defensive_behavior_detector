@@ -12,6 +12,8 @@ import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/connection_badge.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../pairing/domain/pairing_controllers.dart';
+import '../domain/detection_roi.dart';
+import '../domain/detection_roi_controller.dart';
 import '../domain/monitoring_controller.dart';
 import '../domain/monitoring_state.dart';
 import '../domain/permission_service.dart';
@@ -121,6 +123,8 @@ class _MonitoringSetupScreenState
               ],
             ],
           ),
+          const SectionHeader(title: '탐지 영역'),
+          _DetectionAreaRow(roi: ref.watch(detectionRoiProvider)),
           const SectionHeader(title: '서버 연결'),
           _ConnectionRow(connection: connection),
           if (state.errorMessage != null) ...<Widget>[
@@ -348,6 +352,71 @@ class _ConnectionRow extends ConsumerWidget {
             onPressed: () =>
                 ref.read(monitoringControllerProvider.notifier).checkConnection(),
             child: const Text('다시 확인'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+/// Shows how much of the frame is analysed, and opens the editor.
+///
+/// Surfaced on the setup screen because framing is the single biggest lever on
+/// whether a small hornet is detected at all: the model sees a fixed 640x640,
+/// so a hive entrance that occupies a corner of a wide shot lands on too few
+/// pixels to register.
+class _DetectionAreaRow extends StatelessWidget {
+  const _DetectionAreaRow({required this.roi});
+
+  final DetectionRoi roi;
+
+  @override
+  Widget build(BuildContext context) {
+    final int percent = (roi.width * roi.height * 100).round();
+    return Container(
+      padding: AppSpacing.card,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadius.cardRadius,
+        border: Border.all(color: AppColors.outline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(
+                roi.isFullFrame
+                    ? Icons.warning_amber_rounded
+                    : Icons.center_focus_strong,
+                size: 18,
+                color: roi.isFullFrame
+                    ? AppColors.statusCaution
+                    : AppColors.statusNormal,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  roi.isFullFrame ? '화면 전체 분석' : '지정한 영역만 분석 (약 $percent%)',
+                  style: AppTypography.titleMedium,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            roi.isFullFrame
+                ? '벌통 입구를 지정하면 멀리 있는 작은 말벌도 탐지할 수 있습니다.'
+                : '벌통 입구가 화면 대부분을 차지하도록 맞추면 가장 잘 동작합니다.',
+            style: AppTypography.bodyMedium,
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          AppButton(
+            label: roi.isFullFrame ? '탐지 영역 설정' : '탐지 영역 변경',
+            icon: Icons.crop,
+            variant: AppButtonVariant.secondary,
+            onPressed: () => unawaited(context.push(Routes.monitorArea)),
           ),
         ],
       ),

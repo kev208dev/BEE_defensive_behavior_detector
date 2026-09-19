@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 
+import 'detection_roi.dart';
 import 'on_device_hornet_detector.dart';
 
 /// Converts model-specific output tensors into the app's stable contract.
@@ -212,6 +213,7 @@ class TfliteHornetDetector implements OnDeviceHornetDetector {
     required this._isolateInterpreter,
     required this.decoder,
     required this.modelVersion,
+    required this.roi,
   });
 
   /// Checks that a model's input tensor is one this adapter can feed.
@@ -279,6 +281,7 @@ class TfliteHornetDetector implements OnDeviceHornetDetector {
     required String assetPath,
     required String modelVersion,
     TfliteOutputDecoder decoder = const VespAiYoloV5Decoder(),
+    DetectionRoi roi = DetectionRoi.full,
   }) async {
     final Interpreter interpreter = await Interpreter.fromAsset(assetPath);
     try {
@@ -306,6 +309,7 @@ class TfliteHornetDetector implements OnDeviceHornetDetector {
       isolateInterpreter: isolateInterpreter,
       decoder: decoder,
       modelVersion: modelVersion,
+      roi: roi,
     );
   }
 
@@ -313,6 +317,14 @@ class TfliteHornetDetector implements OnDeviceHornetDetector {
   final IsolateInterpreter _isolateInterpreter;
   final TfliteOutputDecoder decoder;
   final String modelVersion;
+
+  /// The slice of each frame handed to the model.
+  ///
+  /// Cropping here rather than downstream is the whole point: it changes how
+  /// many of the model's 640 input pixels land on a hornet, which is what
+  /// decides whether a small target is found at all.
+  final DetectionRoi roi;
+
   bool _disposed = false;
 
   @override
@@ -323,11 +335,19 @@ class TfliteHornetDetector implements OnDeviceHornetDetector {
     // be fed.
     final Tensor inputTensor = _interpreter.getInputTensor(0);
     final _FrameData frame = _FrameData.fromCameraImage(image);
+    final ({int left, int top, int width, int height}) crop = roi.pixelsIn(
+      frameWidth: image.width,
+      frameHeight: image.height,
+    );
     final _PreprocessRequest request = _PreprocessRequest(
       frame: frame,
       targetWidth: inputTensor.shape[2],
       targetHeight: inputTensor.shape[1],
       floatInput: inputTensor.type == TensorType.float32,
+      cropLeft: crop.left,
+      cropTop: crop.top,
+      cropWidth: crop.width,
+      cropHeight: crop.height,
     );
     final Uint8List input = await Isolate.run(() => _preprocess(request));
     final List<Tensor> outputTensors = _interpreter.getOutputTensors();
@@ -341,13 +361,18 @@ class TfliteHornetDetector implements OnDeviceHornetDetector {
           index: outputs[index],
       },
     );
-    final List<OnDeviceDetection> detections = decoder.decode(
-      outputs,
-      frameWidth: image.width,
-      frameHeight: image.height,
-      inputWidth: inputTensor.shape[2],
-      inputHeight: inputTensor.shape[1],
-    );
+    // The model saw only the crop, so it is decoded against the crop's
+    // dimensions and the boxes are then lifted back into frame coordinates.
+    final List<OnDeviceDetection> detections = decoder
+        .decode(
+          outputs,
+          frameWidth: crop.width,
+          frameHeight: crop.height,
+          inputWidth: inputTensor.shape[2],
+          inputHeight: inputTensor.shape[1],
+        )
+        .map(roi.mapToFrame)
+        .toList(growable: false);
     stopwatch.stop();
     return OnDeviceDetectionResult(
       hornetCount: detections.length,
@@ -429,12 +454,22 @@ class _PreprocessRequest {
     required this.targetWidth,
     required this.targetHeight,
     required this.floatInput,
+    required this.cropLeft,
+    required this.cropTop,
+    required this.cropWidth,
+    required this.cropHeight,
   });
 
   final _FrameData frame;
   final int targetWidth;
   final int targetHeight;
   final bool floatInput;
+
+  /// Source-pixel rectangle sampled into the model input.
+  final int cropLeft;
+  final int cropTop;
+  final int cropWidth;
+  final int cropHeight;
 }
 
 Uint8List _preprocess(_PreprocessRequest request) {
@@ -451,10 +486,12 @@ Uint8List _preprocess(_PreprocessRequest request) {
       : (Uint8List(pixelCount * 3)
           ..fillRange(0, pixelCount * 3, VespAiLetterboxGeometry.paddingValue));
 
+  // Geometry is computed from the crop, so a region narrower than the frame
+  // is letterboxed on its own terms and fills the input.
   final VespAiLetterboxGeometry geometry =
       TfliteHornetDetector.letterboxGeometry(
-        frameWidth: request.frame.width,
-        frameHeight: request.frame.height,
+        frameWidth: request.cropWidth,
+        frameHeight: request.cropHeight,
         inputWidth: request.targetWidth,
         inputHeight: request.targetHeight,
       );
@@ -462,11 +499,11 @@ Uint8List _preprocess(_PreprocessRequest request) {
   for (int resizedY = 0; resizedY < geometry.resizedHeight; resizedY++) {
     final int targetY = geometry.padTop + resizedY;
     final int sourceY =
-        resizedY * request.frame.height ~/ geometry.resizedHeight;
+        request.cropTop + resizedY * request.cropHeight ~/ geometry.resizedHeight;
     for (int resizedX = 0; resizedX < geometry.resizedWidth; resizedX++) {
       final int targetX = geometry.padLeft + resizedX;
       final int sourceX =
-          resizedX * request.frame.width ~/ geometry.resizedWidth;
+          request.cropLeft + resizedX * request.cropWidth ~/ geometry.resizedWidth;
       final (int, int, int) rgb = _rgbAt(request.frame, sourceX, sourceY);
       final int offset = (targetY * request.targetWidth + targetX) * 3;
       if (floats != null) {

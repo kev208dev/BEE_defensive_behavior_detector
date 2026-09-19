@@ -42,6 +42,46 @@ abstract final class AppConfig {
     defaultValue: 'vespai-yolov5s-all-but-22ip',
   );
 
+  /// Minimum `objectness x class probability` for a detection to count.
+  ///
+  /// VespAI's own monitor uses 0.8 and the benchmark keeps it: once the frame
+  /// is cropped to the hive entrance the true detections come back at ~0.96,
+  /// far clear of this, so there is nothing to gain by lowering it. Lowering it
+  /// trades hornet recall against bee false positives and must not be done
+  /// without bee-only footage to measure the cost — see
+  /// `tools/model_conversion/benchmark_detector.py`. Developer setting, not a
+  /// user one.
+  /// Overridable with
+  /// `--dart-define=DETECTION_CONFIDENCE_THRESHOLD=0.7`. Dart has no
+  /// `double.fromEnvironment`, so it is carried as a string and parsed.
+  static double get detectionConfidenceThreshold =>
+      _parseUnitInterval(_confidenceThresholdRaw, 0.8);
+
+  static const String _confidenceThresholdRaw = String.fromEnvironment(
+    'DETECTION_CONFIDENCE_THRESHOLD',
+  );
+
+  /// IoU above which two same-class boxes are treated as one hornet.
+  static double get detectionNmsIouThreshold =>
+      _parseUnitInterval(_nmsIouThresholdRaw, 0.45);
+
+  static const String _nmsIouThresholdRaw = String.fromEnvironment(
+    'DETECTION_NMS_IOU_THRESHOLD',
+  );
+
+  /// Parses a 0..1 override, falling back when it is absent or nonsense.
+  ///
+  /// A typo in a `--dart-define` must not silently disable detection by
+  /// leaving the threshold at 0 (everything is a hornet) or 1 (nothing is).
+  static double _parseUnitInterval(String raw, double fallback) {
+    if (raw.isEmpty) return fallback;
+    final double? parsed = double.tryParse(raw);
+    if (parsed == null || !parsed.isFinite || parsed <= 0 || parsed > 1) {
+      return fallback;
+    }
+    return parsed;
+  }
+
   /// True when this build carries no real model.
   ///
   /// The mock detector reports zero hornets on every frame without looking at

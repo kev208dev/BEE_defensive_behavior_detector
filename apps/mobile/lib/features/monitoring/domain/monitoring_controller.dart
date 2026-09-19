@@ -13,6 +13,8 @@ import '../../../core/models/requests.dart';
 import '../../../core/providers.dart';
 import 'audio_service.dart';
 import 'camera_service.dart';
+import 'detection_roi.dart';
+import 'detection_roi_controller.dart';
 import 'detector_factory.dart';
 import 'image_analysis_loop.dart';
 import 'monitoring_state.dart';
@@ -26,10 +28,10 @@ final Provider<PermissionService> permissionServiceProvider =
 final Provider<CameraService Function()> cameraServiceFactoryProvider =
     Provider<CameraService Function()>((Ref ref) => CameraService.new);
 
-final Provider<Future<OnDeviceHornetDetector> Function()>
+final Provider<Future<OnDeviceHornetDetector> Function(DetectionRoi)>
 onDeviceDetectorFactoryProvider =
-    Provider<Future<OnDeviceHornetDetector> Function()>(
-      (Ref ref) => createOnDeviceHornetDetector,
+    Provider<Future<OnDeviceHornetDetector> Function(DetectionRoi)>(
+      (Ref ref) => (DetectionRoi roi) => createOnDeviceHornetDetector(roi: roi),
     );
 
 /// Drives the monitoring phone.
@@ -151,7 +153,9 @@ class MonitoringController extends Notifier<MonitoringState> {
 
     final OnDeviceHornetDetector detector;
     try {
-      detector = await ref.read(onDeviceDetectorFactoryProvider)();
+      detector = await ref.read(onDeviceDetectorFactoryProvider)(
+        ref.read(detectionRoiProvider),
+      );
     } on Object catch (error) {
       debugPrint('MonitoringController: detector failed to load — $error');
       await camera.dispose();
