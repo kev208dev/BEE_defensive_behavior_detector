@@ -129,7 +129,7 @@ def test_frame_upload_stores_a_snapshot(client: TestClient) -> None:
 
 
 def test_observation_upload_persists_count_and_growth(client: TestClient) -> None:
-    base = datetime(2026, 9, 19, 12, 0, 0)
+    base = datetime.utcnow() - timedelta(seconds=3)
 
     for index, count in enumerate((0, 1, 2, 4)):
         response = upload_observation(
@@ -156,7 +156,7 @@ def test_observation_upload_persists_count_and_growth(client: TestClient) -> Non
 def test_observation_upload_uses_existing_risk_and_alert_pipeline(
     client: TestClient,
 ) -> None:
-    base = datetime(2026, 9, 19, 12, 0, 0)
+    base = datetime.utcnow() - timedelta(seconds=11)
     statuses: list[str] = []
 
     for index in range(12):
