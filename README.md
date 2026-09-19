@@ -514,6 +514,10 @@ Push는 **DANGER Alert에 대해서만** 전송됩니다. CAUTION은 앱에 기�
 | POST | `/api/demo/script` | mock detector에 시나리오 예약 (실제 카메라 경로 시연용) |
 | POST | `/api/demo/create-alert` | DANGER Alert 강제 생성 + push |
 
+`/api/demo/*` 는 **`DEBUG=true` 일 때만** 등록됩니다. 인증이 없고 `reset` 은
+페어링 세션까지 전부 지우므로, production(`DEBUG=false`)에서는 mount하지 않고
+404를 반환합니다.
+
 상세 요청/응답 스키마는 [`docs/api.md`](docs/api.md) 또는
 서버 실행 후 <http://127.0.0.1:8000/docs> 를 참고하세요.
 
