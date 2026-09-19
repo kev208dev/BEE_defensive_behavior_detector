@@ -19,31 +19,39 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
-// Keep every subproject's Java bytecode target at the level the app itself
-// uses (17, see app/build.gradle.kts).
+// Pub packages that pin their Java compatibility below the 17 this app builds
+// at, and so need their Kotlin compilation pinned to the same level.
 //
-// Some pub packages pin their Java compatibility to 11 and never declare a
-// Kotlin jvmTarget — tflite_flutter 0.12.1 is the one that bites here, and
-// it is the only Java-11 plugin in this build that actually ships Kotlin
-// sources. The Kotlin Gradle Plugin then takes its target from the JDK
-// running Gradle (17), disagrees with javac (11), and fails the whole build:
+// A package that sets `compileOptions` to Java 11 but declares no Kotlin
+// jvmTarget leaves the Kotlin Gradle Plugin to derive its target from the JDK
+// running Gradle — 17 here. KGP then compares the two and fails the build:
 //
 //   Execution failed for task ':tflite_flutter:compileDebugKotlin'.
 //   > Inconsistent JVM-target compatibility detected for tasks
 //     'compileDebugJavaWithJavac' (11) and 'compileDebugKotlin' (17).
 //
-// A pub package cannot be edited, so the alignment has to happen here.
-// Raising javac rather than lowering Kotlin is what converges the build:
-// every plugin that declares a Kotlin jvmTarget already declares 17, so
-// nothing is pulled away from a target it asked for.
+// tflite_flutter is the only one of these that currently ships Kotlin sources,
+// so it is the only one that trips the check today; the others are listed so a
+// version of them that adds Kotlin does not reopen this. Pinning a plugin that
+// has no Kotlin to compile is a no-op.
 //
-// Only JavaCompile is touched, deliberately — it is a core Gradle type, so
-// this file needs no Kotlin Gradle Plugin classes on the root build script's
-// classpath.
+// Kotlin is lowered to meet javac rather than javac raised to meet Kotlin,
+// because raising javac does not survive: AGP sets the JavaCompile task's
+// targetCompatibility from its own DSL in an action it registers while the
+// subproject is evaluated, which is after anything this root script registers,
+// so AGP's value wins on realization. KGP's jvmTarget, by contrast, is only a
+// convention here — the plugin never asks for a target — and an explicit set
+// beats a convention no matter when it is registered.
+val javaElevenPlugins = setOf("tflite_flutter", "jni", "jni_flutter")
+
 subprojects {
-    tasks.withType<JavaCompile>().configureEach {
-        sourceCompatibility = JavaVersion.VERSION_17.toString()
-        targetCompatibility = JavaVersion.VERSION_17.toString()
+    if (name in javaElevenPlugins) {
+        tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>()
+            .configureEach {
+                compilerOptions.jvmTarget.set(
+                    org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11,
+                )
+            }
     }
 }
 
