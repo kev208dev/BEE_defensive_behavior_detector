@@ -4,9 +4,11 @@ import 'package:dio/dio.dart';
 
 import '../errors/error_mapper.dart';
 import '../errors/failure.dart';
+import '../errors/pairing_exception.dart';
 import '../models/alert.dart';
 import '../models/hive.dart';
 import '../models/monitor_responses.dart';
+import '../models/pairing.dart';
 import '../models/requests.dart';
 import 'endpoints.dart';
 
@@ -150,6 +152,80 @@ class ApiClient {
       data: request.toJson(),
     );
     return HeartbeatAck.fromApi(json);
+  }
+
+  // ------------------------------------------------------------------
+  // Pairing
+  // ------------------------------------------------------------------
+
+  /// Asks a hive for a fresh pairing code (manager side).
+  Future<PairingSession> createPairing(String hiveId) async {
+    final Map<String, dynamic> json = await _postObject(
+      Endpoints.pairings,
+      data: <String, dynamic>{'hive_id': hiveId},
+    );
+    return PairingSession.fromApi(json);
+  }
+
+  /// Current state of a pairing, polled while the manager's sheet is open.
+  Future<PairingSession> fetchPairing(String pairingId) async {
+    final Map<String, dynamic> json =
+        await _getObject(Endpoints.pairing(pairingId));
+    return PairingSession.fromApi(json);
+  }
+
+  /// Redeems a code (monitoring side).
+  ///
+  /// Throws a [PairingException] carrying the server's reason, so the screen
+  /// can tell the beekeeper whether to retype or ask for a new code.
+  Future<PairedHive> claimPairing({
+    required String code,
+    required String deviceId,
+  }) async {
+    try {
+      final Response<dynamic> response = await _dio.post<dynamic>(
+        Endpoints.claimPairing,
+        data: <String, dynamic>{'code': code, 'device_id': deviceId},
+      );
+      return PairedHive.fromApi(_asObject(response.data));
+    } on DioException catch (error) {
+      throw _pairingException(error);
+    } on Object catch (error, stackTrace) {
+      throw ErrorMapper.map(error, stackTrace);
+    }
+  }
+
+  /// Turns a rejected claim into a typed failure.
+  ///
+  /// The backend puts `{success, reason, message}` inside FastAPI's `detail`
+  /// envelope; anything else (a proxy error page, a dead connection) falls
+  /// back to a generic reason rather than crashing on a missing field.
+  static PairingException _pairingException(DioException error) {
+    if (error.response == null) {
+      return const PairingException(PairingFailure.network);
+    }
+
+    final Object? data = error.response?.data;
+    if (data is Map<String, dynamic>) {
+      final Object? detail = data['detail'];
+      if (detail is Map<String, dynamic>) {
+        return PairingException(
+          PairingFailure.fromWire(detail['reason'] as String?),
+          serverMessage: detail['message'] as String?,
+        );
+      }
+    }
+
+    // No structured body: fall back to the status code.
+    return PairingException(
+      switch (error.response?.statusCode) {
+        404 => PairingFailure.invalidCode,
+        409 => PairingFailure.alreadyClaimed,
+        410 => PairingFailure.expired,
+        429 => PairingFailure.rateLimited,
+        _ => PairingFailure.unknown,
+      },
+    );
   }
 
   // ------------------------------------------------------------------

@@ -4,6 +4,7 @@ import 'package:beehive_guard/core/config/mode_storage.dart';
 import 'package:beehive_guard/core/models/alert.dart';
 import 'package:beehive_guard/core/models/hive.dart';
 import 'package:beehive_guard/core/models/hive_status.dart';
+import 'package:beehive_guard/core/models/pairing.dart';
 import 'package:beehive_guard/core/providers.dart';
 import 'package:beehive_guard/features/alerts/data/alert_repository.dart';
 import 'package:beehive_guard/features/alerts/domain/alert_watcher.dart';
@@ -165,34 +166,35 @@ void main() {
     }
   });
 
-  testWidgets('monitoring mode leads to the setup screen',
+  testWidgets('an unpaired monitoring phone is sent to pairing',
       (WidgetTester tester) async {
+    // There is no hive picker any more — the phone has to be paired first.
     await pumpApp(tester);
 
+    await tester.tap(find.text('관찰 모드'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('모니터링 기기 연결'), findsWidgets);
+    expect(find.text('6자리 코드 입력'), findsOneWidget);
+    expect(find.text('QR 코드 스캔'), findsOneWidget);
+  });
+
+  testWidgets('a paired monitoring phone goes straight to setup',
+      (WidgetTester tester) async {
+    // This is the restart case: pairing survives, so nothing is retyped.
+    await ModeStorage(prefs).writePairedHive(
+      const PairedHive(hiveId: 'hive-a', hiveName: '벌통 A'),
+    );
+
+    await pumpApp(tester);
     await tester.tap(find.text('관찰 모드'));
     await tester.pumpAndSettle();
 
     expect(find.text('모니터링 설정'), findsOneWidget);
-    expect(find.text('벌통 선택'), findsOneWidget);
+    expect(find.text('연결된 벌통'), findsOneWidget);
+    expect(find.text('벌통 A'), findsWidgets);
     expect(find.text('카메라'), findsOneWidget);
     expect(find.text('마이크'), findsOneWidget);
-  });
-
-  testWidgets('monitoring cannot start until a hive is chosen',
-      (WidgetTester tester) async {
-    await pumpApp(tester);
-    await tester.tap(find.text('관찰 모드'));
-    await tester.pumpAndSettle();
-
-    final Finder startButton = find.widgetWithText(FilledButton, '모니터링 시작');
-    await scrollTo(tester, startButton);
-
-    expect(find.text('벌통을 선택하면 시작할 수 있습니다.'), findsOneWidget);
-    expect(
-      tester.widget<FilledButton>(startButton).onPressed,
-      isNull,
-      reason: 'Start must stay disabled without a hive selection',
-    );
   });
 
   testWidgets('the selected mode is persisted', (WidgetTester tester) async {

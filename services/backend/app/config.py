@@ -131,6 +131,23 @@ class Settings(BaseSettings):
     heartbeat_interval_seconds: float = 10.0
 
     # ------------------------------------------------------------------
+    # Device pairing
+    # ------------------------------------------------------------------
+    # How long a pairing code stays claimable. Short enough that a code read
+    # off someone's screen is useless later, long enough to walk to the hive.
+    pairing_ttl_seconds: float = 600.0
+    # Digits in a pairing code. Six is what a person can retype from a screen.
+    pairing_code_digits: int = 6
+    # Claim attempts allowed from one client inside the window. A six-digit
+    # code is only a million possibilities, so the claim endpoint has to be
+    # throttled or it is brute-forceable.
+    pairing_claim_max_attempts: int = 10
+    pairing_claim_window_seconds: float = 300.0
+    # Claimed/expired codes older than this are swept when a new code is made,
+    # so the table does not grow without bound.
+    pairing_retention_seconds: float = 86_400.0
+
+    # ------------------------------------------------------------------
     # Alert state machine / de-duplication
     # ------------------------------------------------------------------
     # Minimum gap between two alerts of the same severity for one hive.

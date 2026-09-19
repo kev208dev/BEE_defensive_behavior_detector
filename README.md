@@ -106,6 +106,7 @@ apps/
         utils/                json_reader · formatters
       features/
         mode_selection/       역할 선택
+        pairing/              QR·6자리 코드로 벌통 연결
         monitoring/           data / domain / presentation
         dashboard/            data / domain / presentation
         hives/                data / domain / presentation
@@ -118,9 +119,10 @@ services/
   backend/                    FastAPI + SQLModel + SQLite
     app/
       main.py config.py db.py models.py enums.py schemas.py
-      api/                    health · hives · alerts · monitor · devices · demo
+      api/                    health · hives · alerts · monitor · devices
+                              · pairings · demo
       services/               risk_engine · alert_manager · hive_state
-                              · pipeline · explanation · demo
+                              · pipeline · explanation · pairing · demo
       ai/                     detector · mock_detector · yolo_detector
                               · audio · mock_audio · librosa_audio · factory
       notifications/          sender · console · firebase · factory
@@ -146,6 +148,7 @@ docs/                         API 명세 · Risk Engine 설명
 
 주요 패키지: `flutter_riverpod` · `go_router` · `dio` · `freezed` · `json_serializable`
 · `camera` · `record` · `image` · `permission_handler`
+· `qr_flutter` · `mobile_scanner` (기기 페어링)
 · `firebase_core` · `firebase_messaging` · `flutter_local_notifications`
 · `shared_preferences`
 
@@ -267,8 +270,72 @@ flutter run -d <device-id> \
 실제 기기에서는 Xcode에서 signing team 설정이 필요합니다.
 카메라·마이크는 **시뮬레이터에서 동작하지 않으므로** 관찰 모드는 실제 기기로 테스트하세요.
 
-> 서버 주소는 앱을 다시 빌드하지 않고 **설정 화면에서도 변경**할 수 있습니다.
-> 경진대회 현장에서 노트북 IP가 바뀌는 상황을 위한 장치입니다.
+> **서버 주소는 앱 화면에 노출되지 않습니다.** 일반 사용자는 주소를 입력하거나
+> 볼 필요가 없고, 벌통 연결은 §6-1의 페어링 코드로 처리합니다. 개발 중에는
+> `--dart-define=API_BASE_URL=...` 로만 바꾸며, debug 빌드의 설정 화면 맨 아래
+> "개발자 정보"에 현재 주소가 읽기 전용으로 표시됩니다.
+
+---
+
+## 6-1. 기기 페어링 (벌통 연결)
+
+관찰용 스마트폰은 **서버 주소를 입력하지 않습니다.** 관리자 폰이 발급한 코드로
+벌통에 연결하며, 이 연결은 재시작해도 유지됩니다.
+
+### 관리자 폰
+
+```
+Dashboard → 벌통 선택 → 벌통 상세 → "모니터링 기기 연결"
+```
+
+Bottom sheet에 다음이 표시됩니다.
+
+- **QR 코드** — `beehiveguard://pair?code=482731` 형식의 deep link를 담습니다
+- **6자리 숫자 코드** — `482 731` 처럼 읽기 쉽게 끊어서 표시
+- **남은 유효시간** — `09:58` 카운트다운
+- **연결 대기 상태** — 3초마다 polling하며, 연결되면 자동으로 "연결 완료"로 바뀝니다
+
+코드가 만료되면 **새 코드 발급** 버튼이 나타납니다.
+
+### 관찰용 폰
+
+```
+앱 실행 → 관찰 모드 → 자동으로 /pair 화면
+```
+
+두 가지 방법 중 하나를 쓰면 됩니다.
+
+1. **QR 코드 스캔** — `mobile_scanner` 로 관리자 폰 화면을 비춥니다.
+   우리 앱의 코드가 아니면 무시하므로 다른 QR을 비춰도 오류가 나지 않습니다.
+2. **6자리 코드 입력** — 숫자 키패드로 입력하며, 6자리가 채워지면 자동 전송됩니다.
+
+연결에 성공하면 `hiveId` · `hiveName` · `deviceId` 가 로컬에 저장되고
+**벌통 선택 과정 없이** 바로 모니터링 설정 화면으로 이동합니다.
+다음 실행부터는 코드를 다시 입력할 필요가 없습니다.
+
+연결을 끊으려면 **설정 → 연결된 벌통 → 연결 해제** 를 누릅니다.
+
+### 실패 사례별 안내
+
+| 상황 | HTTP | 앱 표시 |
+|---|---|---|
+| 없는 코드 | 404 | 존재하지 않는 코드입니다. 다시 확인해주세요. |
+| 만료된 코드 | 410 | 만료된 코드입니다. 새 코드를 발급받아주세요. |
+| 이미 사용된 코드 | 409 | 이미 사용된 코드입니다. 새 코드를 발급받아주세요. |
+| 시도 과다 | 429 | 시도 횟수가 너무 많습니다. 잠시 후 다시 시도해주세요. |
+
+### 보안 (MVP 수준)
+
+- 코드는 `secrets` 모듈로 생성합니다 (`random` 아님)
+- TTL 10분, **1회용** — 한 번 claim되면 재사용 불가
+- 활성 코드 사이에서 중복되지 않음
+- claim endpoint는 클라이언트 주소 기준으로 **rate limit** (기본 5분에 10회).
+  6자리는 100만 가지뿐이라 제한이 없으면 brute force가 가능합니다.
+- 회원가입·로그인 시스템은 도입하지 않았습니다 (스펙 요구사항)
+
+> **TODO:** rate limiter는 프로세스 메모리에 있어 worker가 여러 개면 창이 공유되지
+> 않습니다. worker를 늘리기 전에 Redis나 테이블로 옮겨야 합니다
+> (`app/services/pairing.py`의 `ClaimRateLimiter` 참고).
 
 ---
 
@@ -311,7 +378,7 @@ flutter run -d <device-id> \
 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
-| `API_BASE_URL` | `http://10.0.2.2:8000` | 백엔드 주소 |
+| `API_BASE_URL` | `http://10.0.2.2:8000` | 백엔드 주소 (빌드 시에만 지정, 앱 UI에 없음) |
 | `FRAME_INTERVAL_MS` | `1000` | 프레임 전송 주기 (≈1 FPS) |
 | `AUDIO_CHUNK_SECONDS` | `3` | 오디오 청크 길이 |
 | `HEARTBEAT_INTERVAL_SECONDS` | `10` | heartbeat 주기 |
@@ -424,6 +491,9 @@ Push는 **DANGER Alert에 대해서만** 전송됩니다. CAUTION은 앱에 기�
 | POST | `/api/monitor/frame` | 프레임 업로드 (multipart) |
 | POST | `/api/monitor/audio` | 오디오 청크 업로드 (multipart) |
 | POST | `/api/monitor/heartbeat` | 관찰 스마트폰 생존 신호 |
+| POST | `/api/pairings` | 페어링 코드 발급 (관리자) |
+| GET | `/api/pairings/{id}` | 페어링 상태 polling (관리자) |
+| POST | `/api/pairings/claim` | 코드 사용해 연결 (관찰 기기) |
 | POST | `/api/devices` | 관찰 기기 등록 |
 | POST | `/api/devices/push-token` | FCM 토큰 등록 |
 | POST | `/api/demo/reset` | 모든 관측·경보 삭제 후 재seed |
@@ -594,7 +664,7 @@ cd services/backend && ./.venv/bin/python -m pytest -v
 cd apps/mobile && flutter analyze && flutter test
 ```
 
-현재 상태: **backend 61 tests · Flutter 53 tests 통과, `flutter analyze` 이슈 0건.**
+현재 상태: **backend 94 tests · Flutter 84 tests 통과, `flutter analyze` 이슈 0건.**
 
 ### Risk Engine 테스트가 검증하는 것
 
@@ -714,10 +784,15 @@ flutter run -d <manager-device> --dart-define=API_BASE_URL=http://<노트북IP>:
 
 ### 시연 흐름
 
+**관리자 스마트폰 — 먼저 벌통을 연결합니다**
+
+0. 앱 실행 → **관리자 모드** → **벌통 A** → **모니터링 기기 연결**
+   → QR 코드와 6자리 코드가 표시됩니다
+
 **관찰용 스마트폰 (벌통 앞 삼각대에 고정)**
 
 1. 앱 실행 → **관찰 모드** 선택
-2. **벌통 A** 선택
+2. QR 코드를 스캔하거나 6자리 코드 입력 → 자동으로 벌통 A에 연결
 3. 카메라·마이크 권한 허용
 4. 서버 연결 상태가 초록색인지 확인
 5. **모니터링 시작**
@@ -753,7 +828,8 @@ flutter run -d <manager-device> --dart-define=API_BASE_URL=http://<노트북IP>:
 
 | 증상 | 대응 |
 |---|---|
-| 스마트폰이 서버에 연결되지 않음 | 앱 **설정** 화면에서 서버 주소 직접 수정 |
+| 스마트폰이 서버에 연결되지 않음 | 같은 Wi-Fi인지 확인 후 `--dart-define=API_BASE_URL=...` 로 재빌드 |
+| 페어링 코드가 만료됨 | 관리자 폰에서 **새 코드 발급** |
 | Wi-Fi 불안정 | `python3 scripts/demo_simulation.py --live` 로 노트북 화면만으로 시연 |
 | Push가 오지 않음 | 폴링 fallback이 최대 10초 내 로컬 알림을 띄웁니다 |
 | 카메라가 말벌을 못 잡음 | `--script-camera` 로 시나리오 예약 |
@@ -783,6 +859,12 @@ flutter run -d <manager-device> --dart-define=API_BASE_URL=http://<노트북IP>:
 - **평문 HTTP를 사용합니다.** 개발 편의를 위한 것이며 실제 배포 시 HTTPS가 필요합니다.
 - **SQLite 단일 파일 DB입니다.** 벌통 수십 개 규모까지는 충분하지만 그 이상은 PostgreSQL이 필요합니다.
 - **스냅샷이 무한히 쌓입니다.** 장기 운영 시 정리 작업이 필요합니다.
+- **`beehiveguard://` deep link는 앱 내 스캐너에서만 처리합니다.** OS에 URL scheme을
+  등록하지 않았으므로 기본 카메라 앱으로 QR을 찍으면 앱이 열리지 않습니다.
+  등록하려면 별도 deep link 패키지가 필요해, 스펙의 "과도한 패키지 추가 금지"에
+  따라 보류했습니다.
+- **페어링 rate limiter가 프로세스 메모리에 있습니다.** worker를 여러 개 띄우면
+  제한 창이 공유되지 않습니다. §6-1의 TODO를 참고하세요.
 - **임계값이 검증되지 않았습니다.** §9의 고지를 반드시 함께 읽어 주세요.
 
 ---

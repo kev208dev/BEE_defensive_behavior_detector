@@ -33,6 +33,12 @@ dependencies:
   # Dart API this app uses. Raise it once API 37 ships as stable.
   permission_handler: ^12.0.3
 
+  # --- Device pairing (replaces typing a server address by hand) ---
+  # qr_flutter is pure Dart; mobile_scanner 7.x needs compileSdk 36 / minSdk 23,
+  # which the app already satisfies.
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^7.4.2
+
   # --- Push notifications ---
   firebase_core: ^4.15.0
   firebase_messaging: ^16.7.0

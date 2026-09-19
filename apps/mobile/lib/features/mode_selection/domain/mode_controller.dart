@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/config/mode_storage.dart';
 import '../../../core/models/hive_status.dart';
 import '../../../core/providers.dart';
 
@@ -24,20 +23,5 @@ class AppModeNotifier extends Notifier<AppMode?> {
   Future<void> clear() async {
     await ref.read(modeStorageProvider).clearMode();
     state = null;
-  }
-}
-
-/// Which hive this monitoring phone is assigned to.
-final NotifierProvider<SelectedHiveNotifier, String?> selectedHiveIdProvider =
-    NotifierProvider<SelectedHiveNotifier, String?>(SelectedHiveNotifier.new);
-
-class SelectedHiveNotifier extends Notifier<String?> {
-  @override
-  String? build() => ref.read(modeStorageProvider).readSelectedHiveId();
-
-  Future<void> select(String hiveId) async {
-    final ModeStorage storage = ref.read(modeStorageProvider);
-    await storage.writeSelectedHiveId(hiveId);
-    state = hiveId;
   }
 }

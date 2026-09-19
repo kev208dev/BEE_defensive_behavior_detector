@@ -6,6 +6,7 @@ import '../../../app/router.dart';
 import '../../../app/theme/tokens.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/models/hive_status.dart';
+import '../../pairing/domain/pairing_controllers.dart';
 import '../domain/mode_controller.dart';
 
 /// The first screen: which role is this phone playing?
@@ -37,7 +38,8 @@ class ModeSelectionScreen extends ConsumerWidget {
               _ModeCard(
                 icon: Icons.videocam_outlined,
                 title: AppMode.monitoring.label,
-                description: '벌통 앞에 고정해 두고 카메라와 마이크로 상황을 관찰합니다.',
+                description: '벌통 앞에 고정해 두고 카메라와 마이크로 상황을 관찰합니다. '
+                    '관리자 기기의 코드로 연결합니다.',
                 onTap: () => _select(context, ref, AppMode.monitoring),
               ),
               const SizedBox(height: AppSpacing.md),
@@ -82,9 +84,15 @@ class ModeSelectionScreen extends ConsumerWidget {
     await ref.read(appModeProvider.notifier).select(mode);
     if (!context.mounted) return;
 
-    context.go(
-      mode == AppMode.monitoring ? Routes.monitorSetup : Routes.dashboard,
-    );
+    if (mode == AppMode.manager) {
+      context.go(Routes.dashboard);
+      return;
+    }
+
+    // A phone that was already paired skips straight to setup; the pairing
+    // survives restarts, so there is nothing to type again.
+    final bool paired = ref.read(pairedHiveProvider) != null;
+    context.go(paired ? Routes.monitorSetup : Routes.pair);
   }
 }
 

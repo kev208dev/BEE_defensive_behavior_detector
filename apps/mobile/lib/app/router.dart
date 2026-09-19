@@ -10,11 +10,13 @@ import '../features/hives/presentation/hive_list_screen.dart';
 import '../features/mode_selection/presentation/mode_selection_screen.dart';
 import '../features/monitoring/presentation/live_monitoring_screen.dart';
 import '../features/monitoring/presentation/monitoring_setup_screen.dart';
+import '../features/pairing/presentation/pair_device_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
 
 /// Named route paths, so navigation calls never contain a raw string.
 abstract final class Routes {
   static const String mode = '/mode';
+  static const String pair = '/pair';
   static const String monitorSetup = '/monitor/setup';
   static const String monitorLive = '/monitor/live';
   static const String dashboard = '/dashboard';
@@ -42,6 +44,11 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
         path: Routes.mode,
         builder: (BuildContext context, GoRouterState state) =>
             const ModeSelectionScreen(),
+      ),
+      GoRoute(
+        path: Routes.pair,
+        builder: (BuildContext context, GoRouterState state) =>
+            const PairDeviceScreen(),
       ),
       GoRoute(
         path: Routes.monitorSetup,

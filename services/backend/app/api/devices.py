@@ -8,13 +8,14 @@ from fastapi import APIRouter
 from sqlmodel import select
 
 from app.api.deps import SessionDep, SettingsDep
-from app.models import MonitoringDevice, PushDevice
+from app.models import PushDevice
 from app.schemas import (
     DeviceRegistrationRequest,
     DeviceRegistrationResponse,
     PushTokenRequest,
     PushTokenResponse,
 )
+from app.services.pairing import bind_device_to_hive
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
@@ -27,24 +28,15 @@ def register_device(
 ) -> DeviceRegistrationResponse:
     """Register (or re-register) a monitoring phone.
 
-    Idempotent on ``(device_id, hive_id)`` so an app restart does not create a
-    duplicate row.
+    Shares :func:`~app.services.pairing.bind_device_to_hive` with the pairing
+    claim, so a device bound by code and one registered directly end up as the
+    same row rather than two rows that each look like a separate device.
     """
-    device: MonitoringDevice | None = None
-    if payload.hive_id:
-        device = session.exec(
-            select(MonitoringDevice)
-            .where(MonitoringDevice.device_identifier == payload.device_id)
-            .where(MonitoringDevice.hive_id == payload.hive_id)
-        ).first()
-
-    if device is None:
-        device = MonitoringDevice(
-            hive_id=payload.hive_id or "",
-            device_identifier=payload.device_id,
-        )
-        session.add(device)
-
+    device = bind_device_to_hive(
+        session,
+        device_id=payload.device_id,
+        hive_id=payload.hive_id,
+    )
     session.commit()
     session.refresh(device)
     return DeviceRegistrationResponse(

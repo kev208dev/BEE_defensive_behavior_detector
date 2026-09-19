@@ -16,6 +16,10 @@ abstract final class Endpoints {
   static const String audio = '/api/monitor/audio';
   static const String heartbeat = '/api/monitor/heartbeat';
 
+  static const String pairings = '/api/pairings';
+  static const String claimPairing = '/api/pairings/claim';
+  static String pairing(String id) => '/api/pairings/$id';
+
   static const String devices = '/api/devices';
   static const String pushToken = '/api/devices/push-token';
 }

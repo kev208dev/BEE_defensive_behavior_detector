@@ -9,12 +9,10 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, File, Form, UploadFile
-from sqlmodel import select
 
 from app.ai.factory import get_audio_classifier, get_detector
 from app.api import mappers
 from app.api.deps import SessionDep, SettingsDep, get_hive_or_404
-from app.models import MonitoringDevice
 from app.notifications.factory import get_sender
 from app.schemas import (
     AudioResponse,
@@ -23,6 +21,7 @@ from app.schemas import (
     HeartbeatResponse,
 )
 from app.services import hive_state, pipeline
+from app.services.pairing import bind_device_to_hive
 
 logger = logging.getLogger(__name__)
 
@@ -143,17 +142,13 @@ def heartbeat(
     hive = get_hive_or_404(session, payload.hive_id)
     now = payload.timestamp or datetime.utcnow()
 
-    device = session.exec(
-        select(MonitoringDevice)
-        .where(MonitoringDevice.device_identifier == payload.device_id)
-        .where(MonitoringDevice.hive_id == payload.hive_id)
-    ).first()
-
-    if device is None:
-        device = MonitoringDevice(
-            hive_id=payload.hive_id,
-            device_identifier=payload.device_id,
-        )
+    # Same binding path as pairing and device registration, so a phone never
+    # ends up with one row per hive it has ever watched.
+    device = bind_device_to_hive(
+        session,
+        device_id=payload.device_id,
+        hive_id=payload.hive_id,
+    )
 
     device.last_heartbeat = now
     device.camera_ok = payload.camera_ok

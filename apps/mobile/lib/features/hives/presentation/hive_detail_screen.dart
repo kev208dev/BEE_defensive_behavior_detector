@@ -14,6 +14,7 @@ import '../../../core/widgets/error_state.dart';
 import '../../../core/widgets/metric_card.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../../core/widgets/status_badge.dart';
+import '../../pairing/presentation/pairing_sheet.dart';
 import '../domain/hive_controllers.dart';
 
 /// Everything known about one hive.
@@ -138,7 +139,18 @@ class _HiveDetailBody extends StatelessWidget {
             ),
           ],
         ),
-        const SectionHeader(title: '관찰 스마트폰'),
+        SectionHeader(
+          title: '관찰 스마트폰',
+          trailing: TextButton.icon(
+            onPressed: () => showPairingSheet(
+              context,
+              hiveId: hive.id,
+              hiveName: hive.name,
+            ),
+            icon: const Icon(Icons.qr_code, size: 18),
+            label: const Text('모니터링 기기 연결'),
+          ),
+        ),
         _DeviceStatusCard(detail: detail),
         const SectionHeader(title: '최근 스냅샷'),
         _LatestSnapshot(url: detail.latestSnapshotUrl),

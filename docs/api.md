@@ -260,6 +260,107 @@ token 기준 멱등입니다. FCM은 앱 재실행 시 같은 토큰을 재발�
 
 ---
 
+## Pairing
+
+관찰용 스마트폰을 벌통에 연결합니다. 서버 주소 입력 UX를 대체합니다.
+
+### `POST /api/pairings`
+
+관리자 앱이 벌통에 코드를 요청합니다. 호출할 때마다 새 코드가 나오며,
+이전 코드도 만료 전까지는 계속 사용할 수 있습니다.
+
+```json
+// 요청
+{ "hive_id": "hive-a" }
+
+// 201 응답
+{
+  "id": "9f2c...",
+  "code": "482731",
+  "hive_id": "hive-a",
+  "hive_name": "벌통 A",
+  "expires_at": "2026-09-19T12:10:00",
+  "expires_in_seconds": 600,
+  "pair_uri": "beehiveguard://pair?code=482731"
+}
+```
+
+`expires_in_seconds` 는 두 기기의 시계가 어긋나도 카운트다운이 맞도록
+응답 시점 기준 남은 초를 함께 내려줍니다.
+`pair_uri` 가 QR 코드에 담기는 값입니다.
+
+### `GET /api/pairings/{id}`
+
+관리자 앱이 sheet를 열어둔 동안 3초 간격으로 polling합니다.
+
+```json
+{
+  "id": "9f2c...",
+  "code": "482731",
+  "status": "WAITING",
+  "hive_id": "hive-a",
+  "hive_name": "벌통 A",
+  "claimed_device_id": null,
+  "expires_at": "2026-09-19T12:10:00",
+  "expires_in_seconds": 540
+}
+```
+
+`status` 는 `WAITING` · `CLAIMED` · `EXPIRED` 입니다.
+만료는 저장된 값이 아니라 `expires_at` 과 현재 시각으로 계산되므로,
+별도의 background job 없이도 만료된 코드가 claim 가능한 상태로 남지 않습니다.
+이미 claim된 코드는 TTL이 지나도 `CLAIMED` 로 유지됩니다 — 관리자 앱이 기다리는
+값이 그것이기 때문입니다.
+
+### `POST /api/pairings/claim`
+
+관찰용 스마트폰이 코드를 사용합니다. 성공하면 `MonitoringDevice` 가
+해당 벌통에 연결됩니다.
+
+```json
+// 요청
+{ "code": "482731", "device_id": "phone-abc123" }
+
+// 200 응답
+{
+  "success": true,
+  "hive_id": "hive-a",
+  "hive_name": "벌통 A",
+  "device_id": "phone-abc123",
+  "pairing_id": "9f2c..."
+}
+```
+
+실패는 이유를 구분해 반환합니다. 앱이 "다시 입력"과 "새 코드 받기" 중
+무엇을 안내할지 결정해야 하기 때문입니다.
+
+| 상황 | HTTP | `detail.reason` |
+|---|---|---|
+| 없는 코드 / 숫자가 아님 | 404 | `INVALID_CODE` |
+| 만료 | 410 | `EXPIRED` |
+| 이미 사용됨 | 409 | `ALREADY_CLAIMED` |
+| 시도 과다 | 429 | `RATE_LIMITED` |
+
+```json
+// 409 응답 본문
+{
+  "detail": {
+    "success": false,
+    "reason": "ALREADY_CLAIMED",
+    "message": "이미 사용된 코드입니다. 새 코드를 발급받아주세요."
+  }
+}
+```
+
+코드는 `482 731` 처럼 공백이나 하이픈이 섞여 들어와도 정규화해 처리합니다.
+
+> **기기 바인딩은 한 기기당 한 벌통입니다.** 스마트폰은 물리적으로 벌통 하나
+> 앞에 있으므로, 다시 페어링하면 행이 추가되는 대신 **이동**합니다.
+> `POST /api/devices` 와 `POST /api/monitor/heartbeat` 도 같은 헬퍼
+> (`bind_device_to_hive`)를 사용해 동일하게 동작합니다.
+
+---
+
 ## Demo (개발 전용)
 
 제품 API가 아니라, 말벌 없이 시연을 재현하기 위한 도구입니다.

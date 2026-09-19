@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../features/alerts/data/alert_repository.dart';
 import '../features/hives/data/hive_repository.dart';
+import '../features/pairing/data/pairing_repository.dart';
 import 'api/api_client.dart';
 import 'api/dio_client.dart';
 import 'config/app_config.dart';
@@ -30,40 +31,18 @@ final Provider<SharedPreferences> sharedPreferencesProvider =
   ),
 );
 
-/// The backend base URL currently in effect.
+/// The backend base URL.
 ///
-/// Starts from the compile-time default and can be overridden at runtime from
-/// the Settings screen — which matters at a venue, where the laptop's IP is
-/// not known until the day.
-final NotifierProvider<BaseUrlNotifier, String> baseUrlProvider =
-    NotifierProvider<BaseUrlNotifier, String>(BaseUrlNotifier.new);
-
-class BaseUrlNotifier extends Notifier<String> {
-  @override
-  String build() {
-    final ModeStorage storage = ref.read(modeStorageProvider);
-    final String? override = storage.readBaseUrlOverride();
-    return (override != null && override.isNotEmpty)
-        ? override
-        : AppConfig.apiBaseUrl;
-  }
-
-  Future<void> set(String value) async {
-    final String trimmed = value.trim();
-    final ModeStorage storage = ref.read(modeStorageProvider);
-    if (trimmed.isEmpty || trimmed == AppConfig.apiBaseUrl) {
-      await storage.clearBaseUrlOverride();
-      state = AppConfig.apiBaseUrl;
-      return;
-    }
-    await storage.writeBaseUrlOverride(trimmed);
-    state = trimmed;
-  }
-}
+/// Read-only at runtime and sourced from [AppConfig] alone. Beekeepers pair
+/// their phones with a code instead of typing an address, so there is no
+/// user-facing setting for this — a release build ships one fixed URL, and a
+/// developer overrides it at build time with
+/// `--dart-define=API_BASE_URL=...`.
+final Provider<String> baseUrlProvider =
+    Provider<String>((Ref ref) => AppConfig.apiBaseUrl);
 
 final Provider<Dio> dioProvider = Provider<Dio>((Ref ref) {
-  final String baseUrl = ref.watch(baseUrlProvider);
-  final Dio dio = DioClient.create(baseUrl: baseUrl);
+  final Dio dio = DioClient.create(baseUrl: ref.watch(baseUrlProvider));
   ref.onDispose(dio.close);
   return dio;
 });
@@ -91,6 +70,12 @@ final Provider<AlertRepository> alertRepositoryProvider =
     Provider<AlertRepository>((Ref ref) {
   if (AppConfig.demoMode) return const DemoAlertRepository();
   return ApiAlertRepository(ref.watch(apiClientProvider));
+});
+
+final Provider<PairingRepository> pairingRepositoryProvider =
+    Provider<PairingRepository>((Ref ref) {
+  if (AppConfig.demoMode) return DemoPairingRepository();
+  return ApiPairingRepository(ref.watch(apiClientProvider));
 });
 
 /// Whether the backend is currently reachable.

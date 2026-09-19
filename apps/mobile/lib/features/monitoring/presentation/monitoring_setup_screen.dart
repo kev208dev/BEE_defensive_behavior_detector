@@ -6,17 +6,12 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/router.dart';
 import '../../../app/theme/tokens.dart';
-import '../../../core/errors/error_mapper.dart';
-import '../../../core/models/hive.dart';
+import '../../../core/models/pairing.dart';
 import '../../../core/providers.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/connection_badge.dart';
-import '../../../core/widgets/empty_state.dart';
-import '../../../core/widgets/error_state.dart';
 import '../../../core/widgets/section_header.dart';
-import '../../../core/widgets/status_badge.dart';
-import '../../hives/domain/hive_controllers.dart';
-import '../../mode_selection/domain/mode_controller.dart';
+import '../../pairing/domain/pairing_controllers.dart';
 import '../domain/monitoring_controller.dart';
 import '../domain/monitoring_state.dart';
 import '../domain/permission_service.dart';
@@ -46,22 +41,19 @@ class _MonitoringSetupScreenState
     await controller.refreshPermissions();
     await controller.checkConnection();
 
-    // Restore the previously chosen hive, so a phone that restarts overnight
-    // comes back watching the same hive.
-    final String? savedId = ref.read(selectedHiveIdProvider);
-    if (savedId != null && ref.read(monitoringControllerProvider).hiveId == null) {
-      final List<Hive>? hives = ref.read(hiveListControllerProvider).value;
-      final Hive? saved = hives?.where((Hive h) => h.id == savedId).firstOrNull;
-      if (saved != null) {
-        controller.selectHive(hiveId: saved.id, hiveName: saved.name);
-      }
+    // The hive comes from the pairing, which survives restarts — a phone that
+    // reboots overnight comes straight back up on the same hive with nothing
+    // to re-enter.
+    final PairedHive? paired = ref.read(pairedHiveProvider);
+    if (paired != null) {
+      controller.selectHive(hiveId: paired.hiveId, hiveName: paired.hiveName);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final MonitoringState state = ref.watch(monitoringControllerProvider);
-    final AsyncValue<List<Hive>> hives = ref.watch(hiveListControllerProvider);
+    final PairedHive? paired = ref.watch(pairedHiveProvider);
     final BackendConnectionState connection = ref.watch(connectionProvider);
 
     return Scaffold(
@@ -79,11 +71,11 @@ class _MonitoringSetupScreenState
         padding: AppSpacing.screen,
         children: <Widget>[
           const Text(
-            '이 스마트폰을 벌통 앞에 고정하고, 관찰할 벌통을 선택하세요.',
+            '이 스마트폰을 벌통 앞에 고정한 뒤 모니터링을 시작하세요.',
             style: AppTypography.bodyLarge,
           ),
-          const SectionHeader(title: '벌통 선택'),
-          _HiveSelector(hives: hives, selectedId: state.hiveId),
+          const SectionHeader(title: '연결된 벌통'),
+          _PairedHiveCard(paired: paired),
           const SectionHeader(title: '권한'),
           _PermissionRow(
             icon: Icons.camera_alt_outlined,
@@ -170,7 +162,7 @@ class _MonitoringSetupScreenState
           const SizedBox(height: AppSpacing.md),
           Text(
             state.hiveId == null
-                ? '벌통을 선택하면 시작할 수 있습니다.'
+                ? '벌통에 연결하면 시작할 수 있습니다.'
                 : '화면이 켜진 상태에서 동작합니다. 절전 모드를 해제해 두세요.',
             style: AppTypography.label,
             textAlign: TextAlign.center,
@@ -191,97 +183,77 @@ class _MonitoringSetupScreenState
   }
 }
 
-class _HiveSelector extends ConsumerWidget {
-  const _HiveSelector({required this.hives, required this.selectedId});
+/// Shows which hive this phone is paired to, with a way to re-pair.
+///
+/// There is no hive picker any more: the binding is established by code, so
+/// the phone cannot be pointed at the wrong hive by a mis-tap here.
+class _PairedHiveCard extends ConsumerWidget {
+  const _PairedHiveCard({required this.paired});
 
-  final AsyncValue<List<Hive>> hives;
-  final String? selectedId;
+  final PairedHive? paired;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return hives.when(
-      loading: () => const Padding(
-        padding: EdgeInsets.all(AppSpacing.xl),
-        child: Center(child: CircularProgressIndicator()),
-      ),
-      error: (Object error, StackTrace stackTrace) => ErrorState(
-        failure: ErrorMapper.map(error, stackTrace),
-        onRetry: () => ref.read(hiveListControllerProvider.notifier).refresh(),
-      ),
-      data: (List<Hive> items) {
-        if (items.isEmpty) {
-          return const EmptyState(
-            icon: Icons.hive_outlined,
-            message: '등록된 벌통이 없습니다. 백엔드 seed 데이터를 확인해주세요.',
-          );
-        }
+    final PairedHive? current = paired;
 
-        return Column(
-          children: items.map((Hive hive) {
-            final bool selected = hive.id == selectedId;
-            return Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-              child: Material(
-                color: AppColors.surface,
-                borderRadius: AppRadius.cardRadius,
-                child: InkWell(
-                  borderRadius: AppRadius.cardRadius,
-                  onTap: () {
-                    ref.read(monitoringControllerProvider.notifier).selectHive(
-                          hiveId: hive.id,
-                          hiveName: hive.name,
-                        );
-                    ref.read(selectedHiveIdProvider.notifier).select(hive.id);
-                  },
-                  child: Container(
-                    padding: AppSpacing.card,
-                    decoration: BoxDecoration(
-                      borderRadius: AppRadius.cardRadius,
-                      border: Border.all(
-                        color: selected
-                            ? AppColors.primary
-                            : AppColors.outline,
-                        width: selected ? 1.6 : 1,
-                      ),
-                    ),
-                    child: Row(
-                      children: <Widget>[
-                        Icon(
-                          selected
-                              ? Icons.radio_button_checked
-                              : Icons.radio_button_unchecked,
-                          color: selected
-                              ? AppColors.primary
-                              : AppColors.textDisabled,
-                          size: 20,
-                        ),
-                        const SizedBox(width: AppSpacing.md),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              Text(
-                                hive.name,
-                                style: AppTypography.titleMedium,
-                              ),
-                              if (hive.location.isNotEmpty)
-                                Text(
-                                  hive.location,
-                                  style: AppTypography.bodyMedium,
-                                ),
-                            ],
-                          ),
-                        ),
-                        StatusBadge(status: hive.status, compact: true),
-                      ],
-                    ),
-                  ),
+    if (current == null) {
+      return Container(
+        padding: AppSpacing.card,
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: AppRadius.cardRadius,
+          border: Border.all(color: AppColors.outline),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text('연결된 벌통이 없습니다', style: AppTypography.titleMedium),
+            const SizedBox(height: AppSpacing.xs),
+            const Text(
+              '관리자 스마트폰에서 벌통을 선택하고 발급한 코드로 연결하세요.',
+              style: AppTypography.bodyMedium,
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            AppButton(
+              label: '벌통 연결하기',
+              icon: Icons.qr_code_scanner,
+              onPressed: () => unawaited(context.push(Routes.pair)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: AppSpacing.card,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadius.cardRadius,
+        border: Border.all(color: AppColors.primary),
+      ),
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.link, size: 20, color: AppColors.statusNormal),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(current.hiveName, style: AppTypography.titleMedium),
+                const SizedBox(height: 2),
+                const Text(
+                  '이 기기는 이 벌통을 관찰합니다.',
+                  style: AppTypography.bodyMedium,
                 ),
-              ),
-            );
-          }).toList(),
-        );
-      },
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: () => unawaited(context.push(Routes.settings)),
+            child: const Text('변경'),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -355,6 +327,8 @@ class _ConnectionRow extends ConsumerWidget {
       ),
       child: Row(
         children: <Widget>[
+          // Deliberately no server address here — it is build configuration,
+          // not something a beekeeper should read or act on.
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -362,9 +336,10 @@ class _ConnectionRow extends ConsumerWidget {
                 ConnectionBadge(state: connection),
                 const SizedBox(height: 2),
                 Text(
-                  ref.watch(baseUrlProvider),
+                  connection.isConnected
+                      ? '분석 서버와 통신할 수 있습니다.'
+                      : '서버에 연결되면 모니터링을 시작할 수 있습니다.',
                   style: AppTypography.bodyMedium,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),

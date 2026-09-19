@@ -109,6 +109,30 @@ class Alert(SQLModel, table=True):
     resolved_at: datetime | None = Field(default=None)
 
 
+class PairingSession(SQLModel, table=True):
+    """A short-lived code that binds a monitoring phone to a hive.
+
+    Replaces the old flow where the beekeeper typed a server address and picked
+    a hive by hand. The manager phone asks for a code, the monitoring phone
+    redeems it, and the binding is recorded here and on
+    :class:`MonitoringDevice`.
+
+    Note that ``claimed_at`` being ``None`` does not mean the code is still
+    usable — expiry is derived from ``expires_at`` against the current time, so
+    no background job is needed to retire stale codes.
+    """
+
+    __tablename__ = "pairing_sessions"
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    code: str = Field(index=True)
+    hive_id: str = Field(foreign_key="hives.id", index=True)
+    created_at: datetime = Field(default_factory=_now)
+    expires_at: datetime = Field(index=True)
+    claimed_at: datetime | None = Field(default=None)
+    claimed_device_id: str | None = Field(default=None)
+
+
 class PushDevice(SQLModel, table=True):
     """An FCM registration token belonging to a manager phone."""
 

@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.ai.factory import get_audio_classifier, get_detector
-from app.api import alerts, demo, devices, health, hives, monitor
+from app.api import alerts, demo, devices, health, hives, monitor, pairings
 from app.config import Settings, get_settings
 from app.db import init_db
 from app.notifications.factory import get_sender
@@ -81,6 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(alerts.router)
     app.include_router(monitor.router)
     app.include_router(devices.router)
+    app.include_router(pairings.router)
     app.include_router(demo.router)
 
     snapshot_dir = Path(settings.snapshot_dir)

@@ -35,6 +35,33 @@ _STATUS_RANK: dict[HiveStatus, int] = {
 }
 
 
+class PairingStatus(str, Enum):
+    """Lifecycle of a pairing code.
+
+    A code is born WAITING, becomes CLAIMED the moment a monitoring phone
+    redeems it, and is EXPIRED once its TTL has passed without a claim. The
+    transition to EXPIRED is computed from the clock rather than written, so a
+    code cannot linger as claimable because no background job ran.
+    """
+
+    WAITING = "WAITING"
+    CLAIMED = "CLAIMED"
+    EXPIRED = "EXPIRED"
+
+
+class PairingFailure(str, Enum):
+    """Why a claim was rejected.
+
+    Returned to the app so it can tell the beekeeper what to do next: retype
+    the code, ask for a fresh one, or stop trying.
+    """
+
+    INVALID_CODE = "INVALID_CODE"
+    EXPIRED = "EXPIRED"
+    ALREADY_CLAIMED = "ALREADY_CLAIMED"
+    RATE_LIMITED = "RATE_LIMITED"
+
+
 class AlertSeverity(str, Enum):
     """Severity of a generated alert."""
 

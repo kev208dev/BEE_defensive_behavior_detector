@@ -1,20 +1,25 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/hive_status.dart';
+import '../models/pairing.dart';
 
 /// Persists the small amount of local state the app needs between launches:
-/// which role this phone plays, which hive it watches, and its device id.
+/// which role this phone plays, which hive it is paired to, and its device id.
 ///
 /// Deliberately not a full account system — the spec calls for none, and a
 /// beekeeper setting up a phone in a field should not have to log in.
+///
+/// The paired hive is what lets a monitoring phone that restarts overnight
+/// come straight back up watching the same hive, with no code to retype.
 class ModeStorage {
   const ModeStorage(this._prefs);
 
   static const String _modeKey = 'app_mode';
-  static const String _hiveKey = 'selected_hive_id';
   static const String _deviceKey = 'device_identifier';
-  static const String _baseUrlKey = 'api_base_url';
   static const String _lastAlertSeenKey = 'last_alert_seen_at';
+  static const String _pairedHiveIdKey = 'paired_hive_id';
+  static const String _pairedHiveNameKey = 'paired_hive_name';
+  static const String _pairingIdKey = 'paired_pairing_id';
 
   final SharedPreferences _prefs;
 
@@ -27,11 +32,6 @@ class ModeStorage {
       _prefs.setString(_modeKey, mode.storageValue);
 
   Future<void> clearMode() => _prefs.remove(_modeKey);
-
-  String? readSelectedHiveId() => _prefs.getString(_hiveKey);
-
-  Future<void> writeSelectedHiveId(String hiveId) =>
-      _prefs.setString(_hiveKey, hiveId);
 
   /// A stable per-install identifier, generated on first use.
   ///
@@ -49,12 +49,32 @@ class ModeStorage {
     return generated;
   }
 
-  String? readBaseUrlOverride() => _prefs.getString(_baseUrlKey);
+  /// The hive this phone was paired to, or `null` if it never was.
+  PairedHive? readPairedHive() {
+    final String? hiveId = _prefs.getString(_pairedHiveIdKey);
+    if (hiveId == null || hiveId.isEmpty) return null;
 
-  Future<void> writeBaseUrlOverride(String value) =>
-      _prefs.setString(_baseUrlKey, value);
+    return PairedHive(
+      hiveId: hiveId,
+      hiveName: _prefs.getString(_pairedHiveNameKey) ?? '벌통',
+      deviceId: _prefs.getString(_deviceKey) ?? '',
+      pairingId: _prefs.getString(_pairingIdKey) ?? '',
+    );
+  }
 
-  Future<void> clearBaseUrlOverride() => _prefs.remove(_baseUrlKey);
+  Future<void> writePairedHive(PairedHive paired) async {
+    await _prefs.setString(_pairedHiveIdKey, paired.hiveId);
+    await _prefs.setString(_pairedHiveNameKey, paired.hiveName);
+    await _prefs.setString(_pairingIdKey, paired.pairingId);
+  }
+
+  /// Forgets the pairing. The device id is deliberately kept so re-pairing the
+  /// same phone updates its existing registration instead of orphaning it.
+  Future<void> clearPairedHive() async {
+    await _prefs.remove(_pairedHiveIdKey);
+    await _prefs.remove(_pairedHiveNameKey);
+    await _prefs.remove(_pairingIdKey);
+  }
 
   /// Watermark used by the manager phone's alert polling fallback.
   DateTime? readLastAlertSeenAt() {

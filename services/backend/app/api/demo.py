@@ -17,7 +17,14 @@ from app.api import mappers
 from app.api.deps import SessionDep, SettingsDep, get_hive_or_404
 from app.db import seed_hives
 from app.enums import HiveStatus
-from app.models import Alert, AudioDetection, Hive, MonitoringDevice, VisionDetection
+from app.models import (
+    Alert,
+    AudioDetection,
+    Hive,
+    MonitoringDevice,
+    PairingSession,
+    VisionDetection,
+)
 from app.notifications.factory import get_sender
 from app.schemas import (
     AlertDetail,
@@ -31,7 +38,7 @@ from app.schemas import (
     DemoSimulateResponse,
     DemoSimulateStep,
 )
-from app.services import demo as demo_service, pipeline
+from app.services import demo as demo_service, pairing as pairing_service, pipeline
 from app.services.alert_manager import dispatch_notification
 from app.services.explanation import build_explanation, build_message
 from app.services.risk_engine import RiskAssessment, RiskBreakdown
@@ -46,6 +53,7 @@ def reset_demo(session: SessionDep, settings: SettingsDep) -> DemoResetResponse:
     detections += int(session.exec(delete(AudioDetection)).rowcount or 0)
     alerts = int(session.exec(delete(Alert)).rowcount or 0)
     session.exec(delete(MonitoringDevice))
+    session.exec(delete(PairingSession))
 
     for hive in session.exec(select(Hive)).all():
         hive.status = HiveStatus.OFFLINE
@@ -63,6 +71,9 @@ def reset_demo(session: SessionDep, settings: SettingsDep) -> DemoResetResponse:
     detector = get_detector(settings)
     if hasattr(detector, "clear_scripts"):
         detector.clear_scripts()
+    # Otherwise a rehearsal that burned through claim attempts would leave
+    # the next demo throttled.
+    pairing_service.claim_rate_limiter.reset()
 
     seeded = seed_hives(settings)
     return DemoResetResponse(

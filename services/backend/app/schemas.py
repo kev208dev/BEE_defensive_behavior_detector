@@ -10,7 +10,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.enums import AlertSeverity, HiveStatus
+from app.enums import AlertSeverity, HiveStatus, PairingFailure, PairingStatus
 
 # ----------------------------------------------------------------------
 # Health
@@ -206,6 +206,70 @@ class PushTokenResponse(BaseModel):
     token: str
     platform: str
     registered_at: datetime
+
+
+# ----------------------------------------------------------------------
+# Pairing
+# ----------------------------------------------------------------------
+
+
+class PairingCreateRequest(BaseModel):
+    """Body of ``POST /api/pairings`` — the manager app asks a hive for a code."""
+
+    hive_id: str
+
+
+class PairingCreateResponse(BaseModel):
+    """The code to display as a QR image and as six digits."""
+
+    id: str
+    code: str
+    hive_id: str
+    hive_name: str = ""
+    expires_at: datetime
+    #: Seconds left at the moment of the response, so the app can run a
+    #: countdown without trusting the phone's clock to match the server's.
+    expires_in_seconds: int = 0
+    #: What the QR image should encode.
+    pair_uri: str = ""
+
+
+class PairingStatusResponse(BaseModel):
+    """Answer to ``GET /api/pairings/{id}`` — polled while the sheet is open."""
+
+    id: str
+    code: str
+    status: PairingStatus
+    hive_id: str
+    hive_name: str = ""
+    claimed_device_id: str | None = None
+    expires_at: datetime
+    expires_in_seconds: int = 0
+
+
+class PairingClaimRequest(BaseModel):
+    """Body of ``POST /api/pairings/claim`` — the monitoring phone redeems."""
+
+    code: str
+    device_id: str
+
+
+class PairingClaimResponse(BaseModel):
+    """What the monitoring phone stores locally after a successful claim."""
+
+    success: bool = True
+    hive_id: str
+    hive_name: str
+    device_id: str
+    pairing_id: str
+
+
+class PairingErrorResponse(BaseModel):
+    """Body of a rejected claim, so the app can explain what went wrong."""
+
+    success: bool = False
+    reason: PairingFailure
+    message: str
 
 
 # ----------------------------------------------------------------------
