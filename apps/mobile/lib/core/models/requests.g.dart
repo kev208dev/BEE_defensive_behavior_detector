@@ -10,7 +10,7 @@ Map<String, dynamic> _$HeartbeatRequestToJson(HeartbeatRequest instance) =>
     <String, dynamic>{
       'hive_id': instance.hiveId,
       'device_id': instance.deviceId,
-      'timestamp': instance.timestamp.toIso8601String(),
+      'timestamp': _utcIso8601(instance.timestamp),
       'camera_ok': instance.cameraOk,
       'microphone_ok': instance.microphoneOk,
       'monitoring': instance.monitoring,
@@ -31,7 +31,7 @@ Map<String, dynamic> _$ObservationRequestToJson(ObservationRequest instance) =>
     <String, dynamic>{
       'hive_id': instance.hiveId,
       'device_id': instance.deviceId,
-      'timestamp': instance.timestamp.toIso8601String(),
+      'timestamp': _utcIso8601(instance.timestamp),
       'hornet_count': instance.hornetCount,
       'max_confidence': instance.maxConfidence,
       'detections': instance.detections,

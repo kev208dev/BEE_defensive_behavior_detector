@@ -6,11 +6,36 @@ so they follow the specification exactly (snake_case on the wire).
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Annotated, TypeVar
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 from app.enums import AlertSeverity, HiveStatus, PairingFailure, PairingStatus
+
+_Dt = TypeVar("_Dt", datetime, "datetime | None")
+
+
+def to_naive_utc(value: _Dt) -> _Dt:
+    """Convert an incoming timestamp to the naive UTC used throughout storage.
+
+    Everything server-side is naive UTC (``datetime.utcnow()``), but a correct
+    client sends RFC 3339 with an offset — ``2026-09-19T12:00:00Z`` — and
+    Pydantic parses that into an aware datetime. Mixing the two raises
+    ``TypeError: can't compare offset-naive and offset-aware datetimes`` the
+    moment the risk window is computed, so the conversion happens once here, at
+    the edge, rather than being guarded for at every comparison.
+
+    A naive value is trusted as UTC and passed through unchanged.
+    """
+    if value is None or value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+#: A timestamp accepted in any timezone and stored as naive UTC.
+UtcTimestamp = Annotated[datetime, AfterValidator(to_naive_utc)]
+OptionalUtcTimestamp = Annotated[datetime | None, AfterValidator(to_naive_utc)]
 
 # ----------------------------------------------------------------------
 # Health
@@ -163,7 +188,7 @@ class ObservationRequest(BaseModel):
 
     hive_id: str = Field(min_length=1, max_length=128)
     device_id: str = Field(min_length=1, max_length=256)
-    timestamp: datetime
+    timestamp: UtcTimestamp
     hornet_count: int = Field(ge=0, le=1000)
     max_confidence: float = Field(ge=0.0, le=1.0)
     detections: list[ObservationDetection] = Field(default_factory=list, max_length=1000)
@@ -193,7 +218,7 @@ class HeartbeatRequest(BaseModel):
 
     hive_id: str
     device_id: str
-    timestamp: datetime | None = None
+    timestamp: OptionalUtcTimestamp = None
     camera_ok: bool = True
     microphone_ok: bool = True
     monitoring: bool = True

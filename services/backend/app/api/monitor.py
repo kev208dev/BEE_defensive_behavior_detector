@@ -8,7 +8,10 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
+from typing import Annotated
+
 from fastapi import APIRouter, File, Form, UploadFile
+from pydantic import AfterValidator
 
 from app.ai.detector import Detection, DetectionResult
 from app.ai.factory import get_audio_classifier, get_detector
@@ -21,6 +24,7 @@ from app.schemas import (
     HeartbeatRequest,
     HeartbeatResponse,
     ObservationRequest,
+    to_naive_utc,
 )
 from app.services import hive_state, pipeline
 from app.services.pairing import bind_device_to_hive
@@ -35,6 +39,16 @@ router = APIRouter(prefix="/api/monitor", tags=["monitor"])
 MAX_FRAME_BYTES = 8 * 1024 * 1024
 MAX_AUDIO_BYTES = 16 * 1024 * 1024
 
+#: A multipart timestamp field, normalised to the naive UTC storage uses.
+#:
+#: ``Form()`` has to sit inside ``Annotated`` for the validator to run: written
+#: as ``Annotated[...] = Form(default=None)`` FastAPI builds the field from the
+#: default alone and the validator is silently dropped, leaving an aware
+#: datetime that blows up the first time the risk window compares it.
+FormTimestamp = Annotated[
+    datetime | None, Form(), AfterValidator(to_naive_utc)
+]
+
 
 @router.post("/frame", response_model=FrameResponse)
 async def upload_frame(
@@ -42,7 +56,7 @@ async def upload_frame(
     settings: SettingsDep,
     hive_id: str = Form(...),
     device_id: str = Form(...),
-    timestamp: datetime | None = Form(default=None),
+    timestamp: FormTimestamp = None,
     image: UploadFile = File(...),
 ) -> FrameResponse:
     """Accept one camera frame, analyse it and return the hive's new state.
@@ -144,7 +158,7 @@ async def upload_audio(
     settings: SettingsDep,
     hive_id: str = Form(...),
     device_id: str = Form(...),
-    timestamp: datetime | None = Form(default=None),
+    timestamp: FormTimestamp = None,
     audio: UploadFile = File(...),
 ) -> AudioResponse:
     """Accept one audio chunk and return its hornet probability."""

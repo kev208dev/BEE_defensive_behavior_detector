@@ -8,6 +8,17 @@ part 'requests.g.dart';
 /// match the backend's snake_case contract exactly, and a typo in a
 /// hand-written map would only surface at runtime.
 
+/// Serialises an instant as UTC with an explicit offset.
+///
+/// `DateTime.toIso8601String()` on a local `DateTime` emits no timezone marker,
+/// and the backend reads an unmarked timestamp as UTC. A phone in KST would
+/// therefore stamp every heartbeat and observation nine hours in the future:
+/// `is_offline()` subtracts that from the server's clock, gets a negative age,
+/// and the hive never goes OFFLINE no matter how long the phone is gone.
+/// Converting here rather than at each call site means a new request type
+/// cannot reintroduce the skew.
+String _utcIso8601(DateTime value) => value.toUtc().toIso8601String();
+
 /// Body of `POST /api/monitor/heartbeat`.
 @JsonSerializable(fieldRename: FieldRename.snake, createFactory: false)
 class HeartbeatRequest {
@@ -22,6 +33,7 @@ class HeartbeatRequest {
 
   final String hiveId;
   final String deviceId;
+  @JsonKey(toJson: _utcIso8601)
   final DateTime timestamp;
   final bool cameraOk;
   final bool microphoneOk;
@@ -67,6 +79,7 @@ class ObservationRequest {
 
   final String hiveId;
   final String deviceId;
+  @JsonKey(toJson: _utcIso8601)
   final DateTime timestamp;
   final int hornetCount;
   final double maxConfidence;
