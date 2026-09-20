@@ -1,8 +1,11 @@
+import 'dart:ui' show Size;
+
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/errors/failure.dart';
 import '../../../core/models/hive_status.dart';
+import 'detection_tracker.dart';
 import 'permission_service.dart';
 
 /// Everything the monitoring screens display.
@@ -34,6 +37,8 @@ class MonitoringState {
     this.observationsDropped = 0,
     this.inferenceMs = 0,
     this.modelVersion = '',
+    this.trackedDetections = const <TrackedDetection>[],
+    this.previewImageSize,
     this.inferenceInProgress = false,
     this.lastDetectionAt,
     this.lastAlertId,
@@ -73,6 +78,16 @@ class MonitoringState {
   final int observationsDropped;
   final int inferenceMs;
   final String modelVersion;
+
+  /// Smoothed detections for the preview overlay.
+  ///
+  /// These are display values: they use the lower display threshold and keep a
+  /// briefly-missed hornet on screen. What the backend is told is computed
+  /// separately, at the stricter upload threshold.
+  final List<TrackedDetection> trackedDetections;
+
+  /// Camera image size the detections were produced from, for overlay mapping.
+  final Size? previewImageSize;
   final bool inferenceInProgress;
   final DateTime? lastDetectionAt;
 
@@ -112,6 +127,8 @@ class MonitoringState {
     int? observationsDropped,
     int? inferenceMs,
     String? modelVersion,
+    List<TrackedDetection>? trackedDetections,
+    Size? previewImageSize,
     bool? inferenceInProgress,
     DateTime? lastDetectionAt,
     String? lastAlertId,
@@ -145,6 +162,8 @@ class MonitoringState {
       observationsDropped: observationsDropped ?? this.observationsDropped,
       inferenceMs: inferenceMs ?? this.inferenceMs,
       modelVersion: modelVersion ?? this.modelVersion,
+      trackedDetections: trackedDetections ?? this.trackedDetections,
+      previewImageSize: previewImageSize ?? this.previewImageSize,
       inferenceInProgress: inferenceInProgress ?? this.inferenceInProgress,
       lastDetectionAt: lastDetectionAt ?? this.lastDetectionAt,
       lastAlertId: lastAlertId ?? this.lastAlertId,

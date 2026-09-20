@@ -18,7 +18,7 @@ Future<OnDeviceHornetDetector> createOnDeviceHornetDetector({
     assetPath: AppConfig.tfliteModelAsset,
     modelVersion: AppConfig.modelVersion,
     decoder: VespAiYoloV5Decoder(
-      confidenceThreshold: AppConfig.detectionConfidenceThreshold,
+      confidenceThreshold: AppConfig.detectionDecodeConfidenceThreshold,
       iouThreshold: AppConfig.detectionNmsIouThreshold,
     ),
     roi: roi,

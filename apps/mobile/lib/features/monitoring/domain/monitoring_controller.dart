@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show Size;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -15,6 +16,7 @@ import 'audio_service.dart';
 import 'camera_service.dart';
 import 'detection_roi.dart';
 import 'detection_roi_controller.dart';
+import 'detection_tracker.dart';
 import 'detector_factory.dart';
 import 'image_analysis_loop.dart';
 import 'monitoring_state.dart';
@@ -53,6 +55,13 @@ class MonitoringController extends Notifier<MonitoringState> {
   AudioService? _audio;
   ObservationUploadQueue<FrameAnalysis>? _observationQueue;
   ImageAnalysisLoop? _analysisLoop;
+
+  /// Smooths per-frame detections so the overlay and the uploaded
+  /// count do not flicker with a single missed frame.
+  final DetectionTracker _tracker = DetectionTracker(
+    iouThreshold: AppConfig.detectionTrackIouThreshold,
+    maxMisses: AppConfig.detectionMaxMisses,
+  );
 
   Timer? _heartbeatTimer;
   StreamSubscription<UploadOutcome<FrameAnalysis>>? _observationOutcomes;
@@ -273,15 +282,53 @@ class MonitoringController extends Notifier<MonitoringState> {
 
   void _onDeviceDetection(OnDeviceDetectionResult result, DateTime observedAt) {
     if (!state.monitoring) return;
+
+    // The model decodes at the lower of the two thresholds so both consumers
+    // can be served from one inference; each then applies its own.
+    final List<OnDeviceDetection> displayable = <OnDeviceDetection>[
+      for (final OnDeviceDetection item in result.detections)
+        if (item.confidence >= AppConfig.detectionDisplayConfidenceThreshold)
+          item,
+    ];
+    final List<TrackedDetection> tracked = _tracker.update(displayable);
+
+    // What the backend is told is computed from the tracks at the stricter
+    // threshold, so one missed frame does not drop the hornet count to zero
+    // and hand the risk engine a spike it has to absorb.
+    final DetectionSnapshot upload = _tracker.snapshotForUpload(
+      AppConfig.detectionUploadConfidenceThreshold,
+    );
+
     state = state.copyWith(
-      hornetCount: result.hornetCount,
-      confidence: result.maxConfidence,
+      hornetCount: upload.count,
+      confidence: upload.maxConfidence,
       inferenceMs: result.inferenceMs,
       modelVersion: result.modelVersion,
       lastDetectionAt: observedAt,
+      trackedDetections: tracked,
+      previewImageSize: _previewImageSize(),
     );
-    _observationQueue?.submit(result, observedAt: observedAt);
+    _observationQueue?.submit(
+      OnDeviceDetectionResult(
+        hornetCount: upload.count,
+        maxConfidence: upload.maxConfidence,
+        detections: upload.detections,
+        inferenceMs: result.inferenceMs,
+        modelVersion: result.modelVersion,
+      ),
+      observedAt: observedAt,
+    );
     _refreshDroppedCount();
+  }
+
+  /// Size of the camera image as the preview widget lays it out.
+  ///
+  /// The preview swaps the sensor's width and height, so the overlay has to
+  /// use the same orientation or every box would be transposed.
+  Size? _previewImageSize() {
+    final Size? preview = _camera?.controller?.value.previewSize;
+    if (preview == null) return null;
+    return Size(preview.height, preview.width);
   }
 
   void _refreshDroppedCount() {
@@ -461,5 +508,6 @@ class MonitoringController extends Notifier<MonitoringState> {
     await audio?.dispose();
 
     _audioUploadInFlight = false;
+    _tracker.reset();
   }
 }

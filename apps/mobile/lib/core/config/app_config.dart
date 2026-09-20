@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 /// Compile-time application configuration.
 ///
 /// Everything here comes from `--dart-define`, so a build can be pointed at a
@@ -42,23 +44,60 @@ abstract final class AppConfig {
     defaultValue: 'vespai-yolov5s-all-but-22ip',
   );
 
-  /// Minimum `objectness x class probability` for a detection to count.
+  /// Confidence a detection needs before it is drawn on the preview.
   ///
-  /// VespAI's own monitor uses 0.8 and the benchmark keeps it: once the frame
-  /// is cropped to the hive entrance the true detections come back at ~0.96,
-  /// far clear of this, so there is nothing to gain by lowering it. Lowering it
-  /// trades hornet recall against bee false positives and must not be done
-  /// without bee-only footage to measure the cost — see
-  /// `tools/model_conversion/benchmark_detector.py`. Developer setting, not a
-  /// user one.
-  /// Overridable with
-  /// `--dart-define=DETECTION_CONFIDENCE_THRESHOLD=0.7`. Dart has no
-  /// `double.fromEnvironment`, so it is carried as a string and parsed.
-  static double get detectionConfidenceThreshold =>
+  /// Lower than [detectionUploadConfidenceThreshold] on purpose. The overlay
+  /// is a live view for a person standing at the hive, so showing a hornet the
+  /// model is fairly sure about is useful even when the backend should not yet
+  /// count it. Being wrong here costs a box that disappears; being wrong on
+  /// the upload threshold moves the risk score.
+  ///
+  /// `--dart-define=DETECTION_DISPLAY_CONFIDENCE_THRESHOLD=0.7`.
+  static double get detectionDisplayConfidenceThreshold =>
+      _parseUnitInterval(_displayThresholdRaw, 0.65);
+
+  static const String _displayThresholdRaw = String.fromEnvironment(
+    'DETECTION_DISPLAY_CONFIDENCE_THRESHOLD',
+  );
+
+  /// Confidence a detection needs before it is reported to the risk engine.
+  ///
+  /// Stays at VespAI's own 0.8. Once the frame is cropped to the hive entrance
+  /// true detections come back at ~0.96, well clear of this, so lowering it
+  /// buys recall the ROI already provides while adding bee false positives
+  /// whose cost is unmeasured. See `tools/model_conversion/README.md`.
+  ///
+  /// `--dart-define=DETECTION_CONFIDENCE_THRESHOLD=0.75`. The old name is kept
+  /// so existing build scripts keep working.
+  static double get detectionUploadConfidenceThreshold =>
       _parseUnitInterval(_confidenceThresholdRaw, 0.8);
 
   static const String _confidenceThresholdRaw = String.fromEnvironment(
     'DETECTION_CONFIDENCE_THRESHOLD',
+  );
+
+  /// The threshold the model decodes at — the lower of the two.
+  ///
+  /// Decoding at the display threshold and filtering afterwards is what makes
+  /// two thresholds possible at all: anything discarded inside the decoder is
+  /// gone, so it has to keep everything either consumer might want.
+  static double get detectionDecodeConfidenceThreshold => math.min(
+    detectionDisplayConfidenceThreshold,
+    detectionUploadConfidenceThreshold,
+  );
+
+  /// Frames a detection keeps being displayed after the model stops seeing it.
+  static int get detectionMaxMisses => const int.fromEnvironment(
+    'DETECTION_MAX_MISSES',
+    defaultValue: 2,
+  );
+
+  /// Overlap at which a new box is treated as an existing tracked hornet.
+  static double get detectionTrackIouThreshold =>
+      _parseUnitInterval(_trackIouRaw, 0.3);
+
+  static const String _trackIouRaw = String.fromEnvironment(
+    'DETECTION_TRACK_IOU_THRESHOLD',
   );
 
   /// IoU above which two same-class boxes are treated as one hornet.

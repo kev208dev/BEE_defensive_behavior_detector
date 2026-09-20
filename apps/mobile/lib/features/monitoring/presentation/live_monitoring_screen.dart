@@ -12,6 +12,7 @@ import '../../../core/widgets/metric_card.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../domain/monitoring_controller.dart';
 import '../domain/monitoring_state.dart';
+import 'detection_overlay.dart';
 
 /// The monitoring phone's main screen.
 ///
@@ -150,12 +151,30 @@ class _CameraPreview extends StatelessWidget {
                         child: CameraPreview(controller),
                       ),
                     ),
+                    DetectionOverlay(
+                      detections: state.trackedDetections,
+                      imageSize: state.previewImageSize,
+                    ),
                     if (state.monitoring)
                       const Positioned(
                         top: AppSpacing.md,
                         left: AppSpacing.md,
                         child: _RecordingIndicator(),
                       ),
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: DetectionStatsBar(
+                        detectionCount: state.trackedDetections.length,
+                        maxConfidence: state.trackedDetections.isEmpty
+                            ? 0
+                            : state.trackedDetections.first.detection.confidence,
+                        inferenceMs: state.inferenceMs,
+                        modelLabel: state.modelVersion,
+                        detecting: state.monitoring,
+                      ),
+                    ),
                   ],
                 )
               : const Center(
