@@ -17,6 +17,7 @@ class ImageAnalysisLoop {
     required this.interval,
     required this.onDetection,
     this.onBusyChanged,
+    this.onFrameStarted,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
 
@@ -24,6 +25,7 @@ class ImageAnalysisLoop {
   final Duration interval;
   final DetectionCallback onDetection;
   final ValueChanged<bool>? onBusyChanged;
+  final ValueChanged<CameraImage>? onFrameStarted;
   final DateTime Function() _now;
 
   DateTime? _lastStartedAt;
@@ -46,6 +48,7 @@ class ImageAnalysisLoop {
     if (previous != null && observedAt.difference(previous) < interval) return;
 
     _lastStartedAt = observedAt;
+    onFrameStarted?.call(image);
     onBusyChanged?.call(true);
     final Future<void> operation = _analyse(image, observedAt);
     _inFlight = operation;

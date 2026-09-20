@@ -45,8 +45,21 @@ normalized top-left `x, y, width, height`. Both classes count toward
 The camera plugin supplies iOS frames as BGRA8888 and Android frames as NV21
 or planar YUV. Conversion, letterboxing, and inference retain the existing
 background-isolate and single-flight frame-dropping pipeline. Coordinates are
-relative to the native camera buffer; the app does not currently render a box
-overlay that would require preview-orientation remapping.
+relative to the native camera buffer. The overlay separately maps these to
+preview orientation and `BoxFit.cover`. AVFoundation already rotates/mirrors
+the shared texture/stream buffer; CameraX requires the sensor/device transform.
+Only current-frame detections >= 0.80 are uploaded; held UI tracks are excluded.
+The debug overlay shows raw/current versus faded held tracks at display 0.65.
+
+## September 2026 model comparison
+
+The existing asset is retained as a **diagnostic baseline, not a validated
+hive-entrance winner**. A paired comparison of four VespAI weights found high
+confidence false positives on cropped hard negatives, including text. No
+alternative met the adoption criteria, so no rejected candidate was exported.
+See `tools/model_conversion/evaluations/2026-09-20/REPORT.md` for the frozen
+manifest, protocol, metrics, limitations and next steps. The asset SHA and
+decoder contract above are unchanged.
 
 ## Failure behavior
 

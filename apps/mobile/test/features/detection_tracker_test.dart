@@ -101,9 +101,7 @@ void main() {
 
     test('two species in the same place do not merge', () {
       final DetectionTracker tracker = DetectionTracker();
-      tracker.update(<OnDeviceDetection>[
-        hornet(className: 'Vespa crabro'),
-      ]);
+      tracker.update(<OnDeviceDetection>[hornet(className: 'Vespa crabro')]);
 
       final List<TrackedDetection> next = tracker.update(<OnDeviceDetection>[
         hornet(className: 'Vespa velutina'),
@@ -143,24 +141,36 @@ void main() {
       expect(snapshot.maxConfidence, closeTo(0.92, 1e-9));
     });
 
-    test('a track that dips below the threshold still counts', () {
-      // This is the flicker the backend used to see as 1 -> 0 -> 1.
-      final DetectionTracker tracker = DetectionTracker();
-      tracker.update(<OnDeviceDetection>[hornet(confidence: 0.95)]);
+    test(
+      'a past confidence peak cannot promote a current low-confidence box',
+      () {
+        // This is the flicker the backend used to see as 1 -> 0 -> 1.
+        final DetectionTracker tracker = DetectionTracker();
+        tracker.update(<OnDeviceDetection>[hornet(confidence: 0.95)]);
 
-      tracker.update(<OnDeviceDetection>[hornet(x: 0.41, confidence: 0.70)]);
-      final DetectionSnapshot snapshot = tracker.snapshotForUpload(0.8);
+        tracker.update(<OnDeviceDetection>[hornet(x: 0.41, confidence: 0.70)]);
+        final DetectionSnapshot snapshot = tracker.snapshotForUpload(0.8);
 
-      expect(snapshot.count, 1, reason: 'best confidence 0.95 clears 0.8');
-    });
+        expect(snapshot.count, 0);
+      },
+    );
 
-    test('a missed frame does not drop the uploaded count to zero', () {
+    test('a missed frame retains the UI box but uploads zero', () {
       final DetectionTracker tracker = DetectionTracker();
       tracker.update(<OnDeviceDetection>[hornet(confidence: 0.95)]);
 
       tracker.update(<OnDeviceDetection>[]);
 
-      expect(tracker.snapshotForUpload(0.8).count, 1);
+      expect(tracker.tracks, hasLength(1));
+      expect(tracker.snapshotForUpload(0.8).count, 0);
+    });
+
+    test('held old box plus new distant box is one current upload', () {
+      final tracker = DetectionTracker();
+      tracker.update([hornet(x: .1)]);
+      tracker.update([hornet(x: .8)]);
+      expect(tracker.tracks, hasLength(2));
+      expect(tracker.snapshotForUpload(.8).count, 1);
     });
 
     test('the snapshot satisfies the backend observation schema', () {
@@ -183,16 +193,19 @@ void main() {
       );
     });
 
-    test('nothing above threshold reports an empty, zero-confidence snapshot', () {
-      final DetectionTracker tracker = DetectionTracker();
-      tracker.update(<OnDeviceDetection>[hornet(confidence: 0.66)]);
+    test(
+      'nothing above threshold reports an empty, zero-confidence snapshot',
+      () {
+        final DetectionTracker tracker = DetectionTracker();
+        tracker.update(<OnDeviceDetection>[hornet(confidence: 0.66)]);
 
-      final DetectionSnapshot snapshot = tracker.snapshotForUpload(0.8);
+        final DetectionSnapshot snapshot = tracker.snapshotForUpload(0.8);
 
-      expect(snapshot.count, 0);
-      expect(snapshot.maxConfidence, 0);
-      expect(snapshot.detections, isEmpty);
-    });
+        expect(snapshot.count, 0);
+        expect(snapshot.maxConfidence, 0);
+        expect(snapshot.detections, isEmpty);
+      },
+    );
   });
 
   test('reset forgets everything', () {

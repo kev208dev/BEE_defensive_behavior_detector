@@ -29,10 +29,7 @@ class PreviewGeometry {
   /// A degenerate size yields an identity-ish geometry rather than a NaN, so a
   /// preview that has not laid out yet simply draws nothing useful instead of
   /// throwing during paint.
-  factory PreviewGeometry.cover({
-    required Size image,
-    required Size viewport,
-  }) {
+  factory PreviewGeometry.cover({required Size image, required Size viewport}) {
     if (image.width <= 0 ||
         image.height <= 0 ||
         viewport.width <= 0 ||
@@ -69,6 +66,14 @@ class PreviewGeometry {
   final double offsetY;
 
   final Size viewport;
+
+  /// Undo cover cropping for ROI gestures. Output is normalized preview space.
+  Rect normalizedRect(Rect rect, {required Size image}) => Rect.fromLTRB(
+    ((rect.left - offsetX) / (image.width * scale)).clamp(0.0, 1.0),
+    ((rect.top - offsetY) / (image.height * scale)).clamp(0.0, 1.0),
+    ((rect.right - offsetX) / (image.width * scale)).clamp(0.0, 1.0),
+    ((rect.bottom - offsetY) / (image.height * scale)).clamp(0.0, 1.0),
+  );
 
   /// Places a normalized detection in viewport coordinates.
   ///

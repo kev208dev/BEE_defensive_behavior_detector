@@ -28,8 +28,7 @@ class MonitoringSetupScreen extends ConsumerStatefulWidget {
       _MonitoringSetupScreenState();
 }
 
-class _MonitoringSetupScreenState
-    extends ConsumerState<MonitoringSetupScreen> {
+class _MonitoringSetupScreenState extends ConsumerState<MonitoringSetupScreen> {
   @override
   void initState() {
     super.initState();
@@ -38,8 +37,9 @@ class _MonitoringSetupScreenState
 
   Future<void> _prepare() async {
     if (!mounted) return;
-    final MonitoringController controller =
-        ref.read(monitoringControllerProvider.notifier);
+    final MonitoringController controller = ref.read(
+      monitoringControllerProvider.notifier,
+    );
     await controller.refreshPermissions();
     await controller.checkConnection();
 
@@ -105,8 +105,7 @@ class _MonitoringSetupScreenState
                       .requestPermissions(),
                 ),
               ),
-              if (state.cameraPermission ==
-                      PermissionState.permanentlyDenied ||
+              if (state.cameraPermission == PermissionState.permanentlyDenied ||
                   state.microphonePermission ==
                       PermissionState.permanentlyDenied) ...<Widget>[
                 const SizedBox(width: AppSpacing.md),
@@ -124,6 +123,14 @@ class _MonitoringSetupScreenState
             ],
           ),
           const SectionHeader(title: '탐지 영역'),
+          if (ref.read(modeStorageProvider).needsDetectionRoiReview)
+            const Padding(
+              padding: EdgeInsets.only(bottom: AppSpacing.sm),
+              child: Text(
+                '탐지 영역 표시가 수정되었습니다. 벌통 입구 영역을 다시 지정해주세요. '
+                '지정 전에는 전체 화면을 분석합니다.',
+              ),
+            ),
           _DetectionAreaRow(roi: ref.watch(detectionRoiProvider)),
           const SectionHeader(title: '서버 연결'),
           _ConnectionRow(connection: connection),
@@ -178,8 +185,9 @@ class _MonitoringSetupScreenState
   }
 
   Future<void> _start() async {
-    final bool started =
-        await ref.read(monitoringControllerProvider.notifier).startMonitoring();
+    final bool started = await ref
+        .read(monitoringControllerProvider.notifier)
+        .startMonitoring();
     if (!mounted || !started) return;
     if (!context.mounted) return;
     // The live screen is pushed, not replaced, so Back returns here.
@@ -349,8 +357,9 @@ class _ConnectionRow extends ConsumerWidget {
             ),
           ),
           TextButton(
-            onPressed: () =>
-                ref.read(monitoringControllerProvider.notifier).checkConnection(),
+            onPressed: () => ref
+                .read(monitoringControllerProvider.notifier)
+                .checkConnection(),
             child: const Text('다시 확인'),
           ),
         ],
@@ -358,7 +367,6 @@ class _ConnectionRow extends ConsumerWidget {
     );
   }
 }
-
 
 /// Shows how much of the frame is analysed, and opens the editor.
 ///

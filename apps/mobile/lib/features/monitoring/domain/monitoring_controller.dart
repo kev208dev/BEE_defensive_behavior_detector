@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:ui' show Size;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_client.dart';
@@ -14,6 +14,7 @@ import '../../../core/models/requests.dart';
 import '../../../core/providers.dart';
 import 'audio_service.dart';
 import 'camera_service.dart';
+import 'camera_geometry.dart';
 import 'detection_roi.dart';
 import 'detection_roi_controller.dart';
 import 'detection_tracker.dart';
@@ -33,7 +34,23 @@ final Provider<CameraService Function()> cameraServiceFactoryProvider =
 final Provider<Future<OnDeviceHornetDetector> Function(DetectionRoi)>
 onDeviceDetectorFactoryProvider =
     Provider<Future<OnDeviceHornetDetector> Function(DetectionRoi)>(
-      (Ref ref) => (DetectionRoi roi) => createOnDeviceHornetDetector(roi: roi),
+      (Ref ref) =>
+          (DetectionRoi roi) => createOnDeviceHornetDetector(
+            roi: roi,
+            roiForFrame: () {
+              final CameraController? camera = ref
+                  .read(monitoringControllerProvider)
+                  .cameraController;
+              if (camera == null ||
+                  defaultTargetPlatform != TargetPlatform.iOS) {
+                return roi;
+              }
+              return sensorToPreview(
+                camera.description,
+                previewOrientation(camera.value),
+              ).roi(roi);
+            },
+          ),
     );
 
 /// Drives the monitoring phone.
@@ -55,9 +72,11 @@ class MonitoringController extends Notifier<MonitoringState> {
   AudioService? _audio;
   ObservationUploadQueue<FrameAnalysis>? _observationQueue;
   ImageAnalysisLoop? _analysisLoop;
+  CameraRectTransform _frameTransform = const CameraRectTransform();
+  Size? _framePreviewSize;
+  DeviceOrientation? _frameOrientation;
 
-  /// Smooths per-frame detections so the overlay and the uploaded
-  /// count do not flicker with a single missed frame.
+  /// UI history only. Uploads use current raw detections independently.
   final DetectionTracker _tracker = DetectionTracker(
     iouThreshold: AppConfig.detectionTrackIouThreshold,
     maxMisses: AppConfig.detectionMaxMisses,
@@ -181,6 +200,22 @@ class MonitoringController extends Notifier<MonitoringState> {
       detector: detector,
       interval: AppConfig.analysisInterval,
       onDetection: _onDeviceDetection,
+      onFrameStarted: (CameraImage image) {
+        final CameraController? controller = camera.controller;
+        _frameOrientation = controller == null
+            ? null
+            : previewOrientation(controller.value);
+        _frameTransform = controller == null
+            ? const CameraRectTransform()
+            : bufferToPreview(
+                platform: defaultTargetPlatform,
+                camera: controller.description,
+                orientation: _frameOrientation!,
+              );
+        _framePreviewSize = _frameTransform.size(
+          Size(image.width.toDouble(), image.height.toDouble()),
+        );
+      },
       onBusyChanged: (bool busy) {
         if (state.monitoring) {
           state = state.copyWith(inferenceInProgress: busy);
@@ -237,6 +272,9 @@ class MonitoringController extends Notifier<MonitoringState> {
       cameraReady: false,
       audioReady: false,
       inferenceInProgress: false,
+      trackedDetections: const [],
+      rawDetections: const [],
+      uploadDetectionCount: 0,
       clearCameraController: true,
     );
   }
@@ -282,20 +320,25 @@ class MonitoringController extends Notifier<MonitoringState> {
 
   void _onDeviceDetection(OnDeviceDetectionResult result, DateTime observedAt) {
     if (!state.monitoring) return;
+    final CameraController? camera = _camera?.controller;
+    if (camera != null &&
+        _frameOrientation != previewOrientation(camera.value)) {
+      return; // The preview moved while this frame was being inferred.
+    }
+    if (state.detectionOrientation != _frameOrientation) _tracker.reset();
 
     // The model decodes at the lower of the two thresholds so both consumers
     // can be served from one inference; each then applies its own.
     final List<OnDeviceDetection> displayable = <OnDeviceDetection>[
       for (final OnDeviceDetection item in result.detections)
         if (item.confidence >= AppConfig.detectionDisplayConfidenceThreshold)
-          item,
+          _frameTransform.detection(item),
     ];
     final List<TrackedDetection> tracked = _tracker.update(displayable);
 
-    // What the backend is told is computed from the tracks at the stricter
-    // threshold, so one missed frame does not drop the hornet count to zero
-    // and hand the risk engine a spike it has to absorb.
-    final DetectionSnapshot upload = _tracker.snapshotForUpload(
+    // Only this frame's evidence is sent. The backend owns time aggregation.
+    final DetectionSnapshot upload = DetectionSnapshot.current(
+      result.detections,
       AppConfig.detectionUploadConfidenceThreshold,
     );
 
@@ -306,7 +349,10 @@ class MonitoringController extends Notifier<MonitoringState> {
       modelVersion: result.modelVersion,
       lastDetectionAt: observedAt,
       trackedDetections: tracked,
-      previewImageSize: _previewImageSize(),
+      previewImageSize: _framePreviewSize,
+      rawDetections: displayable,
+      uploadDetectionCount: upload.count,
+      detectionOrientation: _frameOrientation,
     );
     _observationQueue?.submit(
       OnDeviceDetectionResult(
@@ -319,16 +365,6 @@ class MonitoringController extends Notifier<MonitoringState> {
       observedAt: observedAt,
     );
     _refreshDroppedCount();
-  }
-
-  /// Size of the camera image as the preview widget lays it out.
-  ///
-  /// The preview swaps the sensor's width and height, so the overlay has to
-  /// use the same orientation or every box would be transposed.
-  Size? _previewImageSize() {
-    final Size? preview = _camera?.controller?.value.previewSize;
-    if (preview == null) return null;
-    return Size(preview.height, preview.width);
   }
 
   void _refreshDroppedCount() {

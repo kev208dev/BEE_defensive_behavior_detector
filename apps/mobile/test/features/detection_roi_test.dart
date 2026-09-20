@@ -1,12 +1,40 @@
+import 'dart:convert';
+
+import 'package:beehive_guard/core/config/mode_storage.dart';
 import 'package:beehive_guard/features/monitoring/domain/detection_roi.dart';
 import 'package:beehive_guard/features/monitoring/domain/on_device_hornet_detector.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// The region is what makes a small hornet detectable at all, so its geometry
 /// has to be exact: a wrong crop feeds the model the wrong pixels, and a wrong
 /// reverse mapping puts the boxes — and the uploaded metadata — somewhere the
 /// hornet is not.
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'legacy viewport ROI is retained but not reinterpreted as sensor ROI',
+    () async {
+      const legacy = '{"x":0.2,"y":0.3,"width":0.4,"height":0.5}';
+      SharedPreferences.setMockInitialValues({'detection_roi': legacy});
+      final prefs = await SharedPreferences.getInstance();
+      final storage = ModeStorage(prefs);
+      expect(storage.needsDetectionRoiReview, isTrue);
+      expect(storage.readDetectionRoi(), DetectionRoi.full);
+      final roi = DetectionRoi.clamped(x: .1, y: .2, width: .3, height: .4);
+      await storage.writeDetectionRoi(roi);
+      expect(storage.needsDetectionRoiReview, isFalse);
+      expect(storage.readDetectionRoi(), roi);
+      expect(prefs.getString('detection_roi'), legacy);
+      expect(
+        jsonDecode(prefs.getString('detection_roi_sensor_v2')!),
+        roi.toJson(),
+      );
+      await storage.clearDetectionRoi();
+      expect(storage.readDetectionRoi(), DetectionRoi.full);
+      expect(storage.needsDetectionRoiReview, isFalse);
+    },
+  );
   group('construction', () {
     test('the default is the whole frame', () {
       expect(DetectionRoi.full.isFullFrame, isTrue);

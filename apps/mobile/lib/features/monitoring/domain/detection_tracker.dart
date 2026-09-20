@@ -34,8 +34,7 @@ class TrackedDetection {
 
   /// Highest confidence this track has reached.
   ///
-  /// Used for the upload decision so that a hornet which dips for one frame
-  /// is not dropped from the count the risk engine sees.
+  /// Diagnostic history only; never used for the server upload decision.
   final double bestConfidence;
 
   bool get isCurrent => missCount == 0;
@@ -62,14 +61,28 @@ class DetectionSnapshot {
     required this.maxConfidence,
   });
 
+  factory DetectionSnapshot.current(
+    List<OnDeviceDetection> raw,
+    double threshold,
+  ) {
+    final List<OnDeviceDetection> kept = raw
+        .where((box) => box.confidence >= threshold)
+        .toList(growable: false);
+    return DetectionSnapshot(
+      detections: kept,
+      maxConfidence: kept.fold(
+        0,
+        (value, box) => math.max(value, box.confidence),
+      ),
+    );
+  }
+
   static const DetectionSnapshot empty = DetectionSnapshot(
     detections: <OnDeviceDetection>[],
     maxConfidence: 0,
   );
-
   final List<OnDeviceDetection> detections;
   final double maxConfidence;
-
   int get count => detections.length;
 }
 
@@ -78,9 +91,8 @@ class DetectionSnapshot {
 /// The model is run on one sampled frame per second and a hornet that is
 /// partly occluded, motion-blurred, or simply at an awkward angle drops below
 /// the threshold for a frame and comes back. Drawing raw per-frame output
-/// makes the overlay strobe, and feeding it straight to the backend makes the
-/// hornet count jump 3 -> 0 -> 2, which is noise the risk engine then has to
-/// absorb.
+/// makes the overlay strobe. Holding boxes is strictly a display concern:
+/// the risk engine receives only the current frame and owns aggregation.
 ///
 /// The rule is deliberately simple — match by IoU within a class, keep a track
 /// alive for [maxMisses] further frames, then drop it. No velocity model: at
@@ -118,7 +130,9 @@ class DetectionTracker {
 
   /// Tracks currently worth showing, most confident first.
   List<TrackedDetection> get tracks => List<TrackedDetection>.unmodifiable(
-    _tracks.where((TrackedDetection track) => track.seenCount >= minimumSeenFrames),
+    _tracks.where(
+      (TrackedDetection track) => track.seenCount >= minimumSeenFrames,
+    ),
   );
 
   /// Folds one frame of raw detections into the tracks.
@@ -192,15 +206,14 @@ class DetectionTracker {
 
   /// What to upload, filtered by the stricter server-side threshold.
   ///
-  /// Reads [TrackedDetection.bestConfidence] rather than the latest frame so a
-  /// hornet that dipped this frame still counts — that dip is exactly the
-  /// flicker this class exists to absorb. The snapshot is self-consistent by
-  /// construction: the count is the list length and the maximum is taken from
-  /// the same list, which is what the backend's observation schema requires.
+  /// Only current boxes at their current confidence are eligible. Held tracks
+  /// and past confidence peaks are UI history, not new observations.
   DetectionSnapshot snapshotForUpload(double confidenceThreshold) {
     final List<OnDeviceDetection> detections = <OnDeviceDetection>[
       for (final TrackedDetection track in tracks)
-        if (track.bestConfidence >= confidenceThreshold) track.detection,
+        if (track.isCurrent &&
+            track.detection.confidence >= confidenceThreshold)
+          track.detection,
     ];
     if (detections.isEmpty) return DetectionSnapshot.empty;
     return DetectionSnapshot(
@@ -232,7 +245,6 @@ double intersectionOverUnion(OnDeviceDetection a, OnDeviceDetection b) {
     math.min(a.y + a.height, b.y + b.height) - math.max(a.y, b.y),
   );
   final double intersection = overlapWidth * overlapHeight;
-  final double union =
-      a.width * a.height + b.width * b.height - intersection;
+  final double union = a.width * a.height + b.width * b.height - intersection;
   return union <= 0 ? 0 : intersection / union;
 }

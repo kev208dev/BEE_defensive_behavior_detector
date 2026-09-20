@@ -214,6 +214,7 @@ class TfliteHornetDetector implements OnDeviceHornetDetector {
     required this.decoder,
     required this.modelVersion,
     required this.roi,
+    this.roiForFrame,
   });
 
   /// Checks that a model's input tensor is one this adapter can feed.
@@ -282,6 +283,7 @@ class TfliteHornetDetector implements OnDeviceHornetDetector {
     required String modelVersion,
     TfliteOutputDecoder decoder = const VespAiYoloV5Decoder(),
     DetectionRoi roi = DetectionRoi.full,
+    DetectionRoi Function()? roiForFrame,
   }) async {
     final Interpreter interpreter = await Interpreter.fromAsset(assetPath);
     try {
@@ -310,6 +312,7 @@ class TfliteHornetDetector implements OnDeviceHornetDetector {
       decoder: decoder,
       modelVersion: modelVersion,
       roi: roi,
+      roiForFrame: roiForFrame,
     );
   }
 
@@ -324,6 +327,7 @@ class TfliteHornetDetector implements OnDeviceHornetDetector {
   /// many of the model's 640 input pixels land on a hornet, which is what
   /// decides whether a small target is found at all.
   final DetectionRoi roi;
+  final DetectionRoi Function()? roiForFrame;
 
   bool _disposed = false;
 
@@ -335,7 +339,8 @@ class TfliteHornetDetector implements OnDeviceHornetDetector {
     // be fed.
     final Tensor inputTensor = _interpreter.getInputTensor(0);
     final _FrameData frame = _FrameData.fromCameraImage(image);
-    final ({int left, int top, int width, int height}) crop = roi.pixelsIn(
+    final DetectionRoi frameRoi = roiForFrame?.call() ?? roi;
+    final ({int left, int top, int width, int height}) crop = frameRoi.pixelsIn(
       frameWidth: image.width,
       frameHeight: image.height,
     );
@@ -371,7 +376,14 @@ class TfliteHornetDetector implements OnDeviceHornetDetector {
           inputWidth: inputTensor.shape[2],
           inputHeight: inputTensor.shape[1],
         )
-        .map(roi.mapToFrame)
+        .map(
+          DetectionRoi.clamped(
+            x: crop.left / image.width,
+            y: crop.top / image.height,
+            width: crop.width / image.width,
+            height: crop.height / image.height,
+          ).mapToFrame,
+        )
         .toList(growable: false);
     stopwatch.stop();
     return OnDeviceDetectionResult(
@@ -499,11 +511,13 @@ Uint8List _preprocess(_PreprocessRequest request) {
   for (int resizedY = 0; resizedY < geometry.resizedHeight; resizedY++) {
     final int targetY = geometry.padTop + resizedY;
     final int sourceY =
-        request.cropTop + resizedY * request.cropHeight ~/ geometry.resizedHeight;
+        request.cropTop +
+        resizedY * request.cropHeight ~/ geometry.resizedHeight;
     for (int resizedX = 0; resizedX < geometry.resizedWidth; resizedX++) {
       final int targetX = geometry.padLeft + resizedX;
       final int sourceX =
-          request.cropLeft + resizedX * request.cropWidth ~/ geometry.resizedWidth;
+          request.cropLeft +
+          resizedX * request.cropWidth ~/ geometry.resizedWidth;
       final (int, int, int) rgb = _rgbAt(request.frame, sourceX, sourceY);
       final int offset = (targetY * request.targetWidth + targetX) * 3;
       if (floats != null) {

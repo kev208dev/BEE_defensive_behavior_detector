@@ -10,6 +10,7 @@ import 'tflite_hornet_detector.dart';
 /// monitoring phone's region is per-device local state, not build config.
 Future<OnDeviceHornetDetector> createOnDeviceHornetDetector({
   DetectionRoi roi = DetectionRoi.full,
+  DetectionRoi Function()? roiForFrame,
 }) async {
   if (AppConfig.usesMockDetector) {
     return MockOnDeviceHornetDetector();
@@ -22,5 +23,6 @@ Future<OnDeviceHornetDetector> createOnDeviceHornetDetector({
       iouThreshold: AppConfig.detectionNmsIouThreshold,
     ),
     roi: roi,
+    roiForFrame: roiForFrame,
   );
 }

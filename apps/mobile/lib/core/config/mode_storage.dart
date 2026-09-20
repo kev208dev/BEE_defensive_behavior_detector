@@ -24,9 +24,17 @@ class ModeStorage {
   static const String _pairedHiveIdKey = 'paired_hive_id';
   static const String _pairedHiveNameKey = 'paired_hive_name';
   static const String _pairingIdKey = 'paired_pairing_id';
-  static const String _detectionRoiKey = 'detection_roi';
+  // v1 stored viewport fractions as buffer fractions, without orientation or
+  // cover metadata. It cannot be safely reinterpreted as a sensor-space ROI.
+  // Retain that value for recovery and ask the operator to mark the area once.
+  static const String _legacyDetectionRoiKey = 'detection_roi';
+  static const String _detectionRoiKey = 'detection_roi_sensor_v2';
 
   final SharedPreferences _prefs;
+
+  bool get needsDetectionRoiReview =>
+      _prefs.containsKey(_legacyDetectionRoiKey) &&
+      !_prefs.containsKey(_detectionRoiKey);
 
   static Future<ModeStorage> create() async =>
       ModeStorage(await SharedPreferences.getInstance());
@@ -56,12 +64,10 @@ class ModeStorage {
     }
   }
 
-  Future<void> writeDetectionRoi(DetectionRoi roi) => _prefs.setString(
-    _detectionRoiKey,
-    jsonEncode(roi.toJson()),
-  );
+  Future<void> writeDetectionRoi(DetectionRoi roi) =>
+      _prefs.setString(_detectionRoiKey, jsonEncode(roi.toJson()));
 
-  Future<void> clearDetectionRoi() => _prefs.remove(_detectionRoiKey);
+  Future<void> clearDetectionRoi() => writeDetectionRoi(DetectionRoi.full);
 
   /// A stable per-install identifier, generated on first use.
   ///

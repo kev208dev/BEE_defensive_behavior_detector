@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../app/theme/tokens.dart';
 import '../domain/detection_tracker.dart';
@@ -49,10 +50,7 @@ class DetectionOverlay extends StatelessWidget {
         builder: (BuildContext context, BoxConstraints constraints) {
           return CustomPaint(
             size: Size(constraints.maxWidth, constraints.maxHeight),
-            painter: DetectionPainter(
-              detections: detections,
-              imageSize: image,
-            ),
+            painter: DetectionPainter(detections: detections, imageSize: image),
           );
         },
       ),
@@ -83,7 +81,7 @@ class DetectionPainter extends CustomPainter {
       final Color color = DetectionColors.forClass(detection.className);
       // A held-over box is drawn faded, so the operator can tell a live
       // detection from one the tracker is carrying through a missed frame.
-      final double opacity = track.isCurrent ? 1.0 : 0.45;
+      final double opacity = opacityFor(track);
 
       canvas.drawRect(
         rect,
@@ -92,9 +90,22 @@ class DetectionPainter extends CustomPainter {
           ..strokeWidth = 2.5
           ..color = color.withValues(alpha: opacity),
       );
-      _paintLabel(canvas, size, rect, detection, color, opacity);
+      _paintLabel(
+        canvas,
+        size,
+        rect,
+        detection,
+        color,
+        opacity,
+        track.isCurrent,
+      );
     }
   }
+
+  static double opacityFor(TrackedDetection track) =>
+      track.isCurrent ? 1 : 0.25;
+  static String debugLabel(bool current) =>
+      current ? 'RAW CURRENT DETECTION' : 'HELD TRACK';
 
   void _paintLabel(
     Canvas canvas,
@@ -103,10 +114,12 @@ class DetectionPainter extends CustomPainter {
     OnDeviceDetection detection,
     Color color,
     double opacity,
+    bool current,
   ) {
     final TextPainter text = TextPainter(
       text: TextSpan(
-        text: '${detection.className} '
+        text:
+            '${kDebugMode ? '${debugLabel(current)} · ' : ''}${detection.className} '
             '${detection.confidence.toStringAsFixed(2)}',
         style: TextStyle(
           color: Colors.white.withValues(alpha: opacity),
@@ -124,7 +137,10 @@ class DetectionPainter extends CustomPainter {
     final double top = rect.top - labelHeight >= 0
         ? rect.top - labelHeight
         : rect.top;
-    final double left = rect.left.clamp(0.0, (size.width - labelWidth).clamp(0.0, size.width));
+    final double left = rect.left.clamp(
+      0.0,
+      (size.width - labelWidth).clamp(0.0, size.width),
+    );
 
     final Rect background = Rect.fromLTWH(left, top, labelWidth, labelHeight);
     canvas.drawRect(
@@ -151,6 +167,9 @@ class DetectionStatsBar extends StatelessWidget {
     required this.inferenceMs,
     required this.modelLabel,
     required this.detecting,
+    this.rawCount = 0,
+    this.uploadCount = 0,
+    this.uploadThreshold = 0.8,
     super.key,
   });
 
@@ -159,6 +178,9 @@ class DetectionStatsBar extends StatelessWidget {
   final int inferenceMs;
   final String modelLabel;
   final bool detecting;
+  final int rawCount;
+  final int uploadCount;
+  final double uploadThreshold;
 
   @override
   Widget build(BuildContext context) {
@@ -181,10 +203,7 @@ class DetectionStatsBar extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(
-                  detecting ? '탐지 중' : '탐지 중지됨',
-                  style: AppTypography.label,
-                ),
+                Text(detecting ? '탐지 중' : '탐지 중지됨', style: AppTypography.label),
                 if (modelLabel.isNotEmpty)
                   Text(
                     modelLabel,
@@ -192,15 +211,19 @@ class DetectionStatsBar extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                if (kDebugMode)
+                  Text(
+                    'Raw AI: $rawCount · Tracked UI: $detectionCount\n'
+                    'Upload >= ${uploadThreshold.toStringAsFixed(2)}: $uploadCount',
+                    style: AppTypography.label,
+                  ),
               ],
             ),
           ),
           _Stat(label: '탐지', value: '$detectionCount'),
           _Stat(
             label: '신뢰도',
-            value: maxConfidence <= 0
-                ? '—'
-                : maxConfidence.toStringAsFixed(2),
+            value: maxConfidence <= 0 ? '—' : maxConfidence.toStringAsFixed(2),
           ),
           _Stat(label: '지연', value: '${inferenceMs}ms'),
         ],

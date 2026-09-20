@@ -1,5 +1,10 @@
 # VespAI TFLite conversion and verification
 
+The paired multi-weight screening report is in
+[`evaluations/2026-09-20/REPORT.md`](evaluations/2026-09-20/REPORT.md). It
+documents the frozen protocol, hard-negative failures and why no alternative
+checkpoint was exported.
+
 This directory contains only reproducible verification code. The VespAI and
 YOLOv5 repositories, downloaded samples, virtual environment, SavedModel, and
 other temporary conversion files are intentionally not committed.

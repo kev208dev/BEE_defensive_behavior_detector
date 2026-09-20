@@ -7,6 +7,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/theme/tokens.dart';
 import '../../../core/widgets/app_button.dart';
 import '../domain/camera_service.dart';
+import '../domain/camera_geometry.dart';
+import '../domain/preview_geometry.dart';
+import '../domain/on_device_hornet_detector.dart';
 import '../domain/detection_roi.dart';
 import '../domain/detection_roi_controller.dart';
 import '../domain/monitoring_controller.dart';
@@ -116,9 +119,7 @@ class _DetectionAreaScreenState extends ConsumerState<DetectionAreaScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          _draft.isFullFrame ? '전체 화면을 분석합니다.' : '표시한 영역만 분석합니다.',
-        ),
+        content: Text(_draft.isFullFrame ? '전체 화면을 분석합니다.' : '표시한 영역만 분석합니다.'),
       ),
     );
     Navigator.of(context).pop();
@@ -160,19 +161,73 @@ class _PreviewWithRegion extends StatelessWidget {
                 )
               : controller == null || !controller!.value.isInitialized
               ? const Center(child: CircularProgressIndicator())
-              : Stack(
-                  fit: StackFit.expand,
-                  children: <Widget>[
-                    FittedBox(
-                      fit: BoxFit.cover,
-                      child: SizedBox(
-                        width: controller!.value.previewSize?.height ?? 480,
-                        height: controller!.value.previewSize?.width ?? 640,
-                        child: CameraPreview(controller!),
+              : ValueListenableBuilder<CameraValue>(
+                  valueListenable: controller!,
+                  builder: (context, value, _) => Stack(
+                    fit: StackFit.expand,
+                    children: <Widget>[
+                      FittedBox(
+                        fit: BoxFit.cover,
+                        child: SizedBox(
+                          width: cameraPreviewSize(value).width,
+                          height: cameraPreviewSize(value).height,
+                          child: CameraPreview(controller!),
+                        ),
                       ),
-                    ),
-                    RegionEditor(roi: roi, onChanged: onChanged),
-                  ],
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final Size image = cameraPreviewSize(value);
+                          final Size viewport = constraints.biggest;
+                          final PreviewGeometry cover = PreviewGeometry.cover(
+                            image: image,
+                            viewport: viewport,
+                          );
+                          final CameraRectTransform transform = sensorToPreview(
+                            controller!.description,
+                            previewOrientation(value),
+                          );
+                          final DetectionRoi oriented = transform.roi(roi);
+                          final Rect visible = cover
+                              .rectFor(
+                                OnDeviceDetection(
+                                  x: oriented.x,
+                                  y: oriented.y,
+                                  width: oriented.width,
+                                  height: oriented.height,
+                                  confidence: 1,
+                                  className: '',
+                                ),
+                                image: image,
+                              )
+                              .intersect(Offset.zero & viewport);
+                          return RegionEditor(
+                            roi: DetectionRoi.clamped(
+                              x: visible.left / viewport.width,
+                              y: visible.top / viewport.height,
+                              width: visible.width / viewport.width,
+                              height: visible.height / viewport.height,
+                            ),
+                            onChanged: (selected) {
+                              final Rect preview = cover.normalizedRect(
+                                Rect.fromLTWH(
+                                  selected.x * viewport.width,
+                                  selected.y * viewport.height,
+                                  selected.width * viewport.width,
+                                  selected.height * viewport.height,
+                                ),
+                                image: image,
+                              );
+                              onChanged(
+                                CameraRectTransform.roiFromRect(
+                                  transform.inverseRect(preview),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ],
+                  ),
                 ),
         ),
       ),
@@ -185,11 +240,7 @@ class _PreviewWithRegion extends StatelessWidget {
 /// Kept separate from the camera so it can be exercised without one.
 @visibleForTesting
 class RegionEditor extends StatelessWidget {
-  const RegionEditor({
-    required this.roi,
-    required this.onChanged,
-    super.key,
-  });
+  const RegionEditor({required this.roi, required this.onChanged, super.key});
 
   /// Side of the corner grab handle, in logical pixels.
   static const double handleSize = 28;

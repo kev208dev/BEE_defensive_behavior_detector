@@ -26,6 +26,52 @@ import 'on_device_hornet_detector_test.dart' show testCameraImage;
 /// the same inference, which only works if the decoder keeps everything above
 /// the *lower* of the two.
 void main() {
+  test(
+    'a held track and its moved replacement never become two uploads',
+    () async {
+      OnDeviceDetectionResult result(double? x) => OnDeviceDetectionResult(
+        hornetCount: x == null ? 0 : 1,
+        maxConfidence: x == null ? 0 : .93,
+        detections: x == null
+            ? []
+            : [
+                OnDeviceDetection(
+                  x: x,
+                  y: .4,
+                  width: .1,
+                  height: .1,
+                  confidence: .93,
+                  className: 'Vespa crabro',
+                ),
+              ],
+        inferenceMs: 30,
+        modelVersion: 'test',
+      );
+      final harness = await _Harness.start(
+        result(.1),
+        following: [result(.8), result(null)],
+      );
+      addTearDown(harness.dispose);
+      harness.session.emit(testCameraImage());
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+      harness.session.emit(testCameraImage());
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+      expect(harness.state.trackedDetections, hasLength(2));
+      expect(harness.state.rawDetections, hasLength(1));
+      expect(harness.state.uploadDetectionCount, 1);
+      harness.session.emit(testCameraImage());
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expect(harness.state.trackedDetections, hasLength(2));
+      expect(harness.state.rawDetections, isEmpty);
+      expect(harness.state.uploadDetectionCount, 0);
+      expect(harness.adapter.observations.map((r) => r['hornet_count']), [
+        1,
+        1,
+        0,
+      ]);
+      expect(harness.adapter.observations.last['detections'], isEmpty);
+    },
+  );
   test('config keeps the display threshold below the upload threshold', () {
     expect(AppConfig.detectionDisplayConfidenceThreshold, 0.65);
     expect(AppConfig.detectionUploadConfidenceThreshold, 0.8);
@@ -155,7 +201,10 @@ class _Harness {
 
   MonitoringState get state => container.read(monitoringControllerProvider);
 
-  static Future<_Harness> start(OnDeviceDetectionResult result) async {
+  static Future<_Harness> start(
+    OnDeviceDetectionResult result, {
+    List<OnDeviceDetectionResult> following = const [],
+  }) async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     final SharedPreferences preferences = await SharedPreferences.getInstance();
     final _StubAdapter adapter = _StubAdapter();
@@ -180,7 +229,7 @@ class _Harness {
         ),
         cameraServiceFactoryProvider.overrideWithValue(() => camera),
         onDeviceDetectorFactoryProvider.overrideWithValue(
-          (_) async => MockOnDeviceHornetDetector(result: result),
+          (_) async => _SequenceDetector([result, ...following]),
         ),
         apiClientProvider.overrideWithValue(ApiClient(dio)),
       ],
@@ -206,6 +255,17 @@ class _Harness {
     container.dispose();
     dio.close(force: true);
   }
+}
+
+class _SequenceDetector implements OnDeviceHornetDetector {
+  _SequenceDetector(this.results);
+  final List<OnDeviceDetectionResult> results;
+  int index = 0;
+  @override
+  Future<OnDeviceDetectionResult> detect(CameraImage image) async =>
+      results[index < results.length ? index++ : results.length - 1];
+  @override
+  Future<void> dispose() async {}
 }
 
 class _GrantedCameraPermissionService extends PermissionService {

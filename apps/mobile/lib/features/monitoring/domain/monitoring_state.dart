@@ -1,11 +1,11 @@
-import 'dart:ui' show Size;
-
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../../../core/errors/failure.dart';
 import '../../../core/models/hive_status.dart';
 import 'detection_tracker.dart';
+import 'on_device_hornet_detector.dart';
 import 'permission_service.dart';
 
 /// Everything the monitoring screens display.
@@ -39,6 +39,9 @@ class MonitoringState {
     this.modelVersion = '',
     this.trackedDetections = const <TrackedDetection>[],
     this.previewImageSize,
+    this.rawDetections = const <OnDeviceDetection>[],
+    this.uploadDetectionCount = 0,
+    this.detectionOrientation,
     this.inferenceInProgress = false,
     this.lastDetectionAt,
     this.lastAlertId,
@@ -88,6 +91,9 @@ class MonitoringState {
 
   /// Camera image size the detections were produced from, for overlay mapping.
   final Size? previewImageSize;
+  final List<OnDeviceDetection> rawDetections;
+  final int uploadDetectionCount;
+  final DeviceOrientation? detectionOrientation;
   final bool inferenceInProgress;
   final DateTime? lastDetectionAt;
 
@@ -129,6 +135,9 @@ class MonitoringState {
     String? modelVersion,
     List<TrackedDetection>? trackedDetections,
     Size? previewImageSize,
+    List<OnDeviceDetection>? rawDetections,
+    int? uploadDetectionCount,
+    DeviceOrientation? detectionOrientation,
     bool? inferenceInProgress,
     DateTime? lastDetectionAt,
     String? lastAlertId,
@@ -164,6 +173,9 @@ class MonitoringState {
       modelVersion: modelVersion ?? this.modelVersion,
       trackedDetections: trackedDetections ?? this.trackedDetections,
       previewImageSize: previewImageSize ?? this.previewImageSize,
+      rawDetections: rawDetections ?? this.rawDetections,
+      uploadDetectionCount: uploadDetectionCount ?? this.uploadDetectionCount,
+      detectionOrientation: detectionOrientation ?? this.detectionOrientation,
       inferenceInProgress: inferenceInProgress ?? this.inferenceInProgress,
       lastDetectionAt: lastDetectionAt ?? this.lastDetectionAt,
       lastAlertId: lastAlertId ?? this.lastAlertId,
