@@ -1,0 +1,48 @@
+# Strict static analysis.
+#
+# The goal is that `flutter analyze` catches an entire class of mistakes before
+# the app ever reaches a phone — especially implicit `dynamic`, which is easy to
+# introduce when decoding JSON.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+
+  errors:
+    # Generated files are produced by build_runner, not hand-maintained.
+    invalid_annotation_target: ignore
+    # Unused code and TODOs should not be silently tolerated.
+    unused_import: error
+    unused_local_variable: error
+    dead_code: error
+
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+    - "build/**"
+    - android/**
+    - ios/**
+
+linter:
+  rules:
+    - always_declare_return_types
+    - avoid_dynamic_calls
+    - avoid_empty_else
+    - avoid_print
+    - avoid_returning_null_for_void
+    - avoid_slow_async_io
+    - cancel_subscriptions
+    - close_sinks
+    - prefer_const_constructors
+    - prefer_const_declarations
+    - prefer_final_locals
+    - prefer_single_quotes
+    - require_trailing_commas
+    - sort_constructors_first
+    - unawaited_futures
+    - unnecessary_lambdas
+    - unnecessary_parenthesis
+    - use_super_parameters

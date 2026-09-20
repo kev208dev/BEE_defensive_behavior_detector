@@ -1,0 +1,16 @@
+# Optional heavy AI dependencies.
+#
+# The backend runs fully WITHOUT these installed: DETECTOR_MODE=mock and
+# AUDIO_MODEL_MODE=mock are the defaults, and the real adapters lazy-import
+# their libraries so a missing package degrades to mock instead of crashing.
+#
+# Install only when you want to plug in real models:
+#   pip install -r requirements-ai.txt
+ultralytics>=8.2
+librosa>=0.10
+scikit-learn>=1.4
+soundfile>=0.12
+joblib>=1.3
+
+# Optional: real FCM push (NOTIFICATION_MODE=firebase)
+firebase-admin>=6.5
